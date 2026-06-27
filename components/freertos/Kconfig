@@ -4,6 +4,15 @@ menu "FreeRTOS"
         # Upstream FreeRTOS configurations go here
 
 
+        config FREERTOS_PTHREAD
+            bool "Run the FreeRTOS-on-Pthread shim instead (FEATURE UNDER DEVELOPMENT)"
+            depends on IDF_TARGET_LINUX
+            default  "n"
+            help
+                Leaving this option disabled will mean the IDF FreeRTOS kernel is used instead, which is located in:
+                components/freertos/FreeRTOS-Kernel. Both kernel versions are SMP capable, but differ in
+                their implementation and features.
+
         config FREERTOS_SMP
             bool "Run the Amazon SMP FreeRTOS kernel instead (FEATURE UNDER DEVELOPMENT)"
             depends on !IDF_TARGET_ESP32P4 && !IDF_TARGET_ESP32H4  #TODO: IDF-8113: Enable P4/H4 support on AMZ SMP

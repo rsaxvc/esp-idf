@@ -30,7 +30,9 @@ endif()
 # Set some convenience variables
 idf_build_get_property(target IDF_TARGET)
 
-if(CONFIG_FREERTOS_SMP)
+if(CONFIG_FREERTOS_PTHREAD)
+    set(kernel_impl "FreeRTOS-Kernel-PTHREAD")
+elseif(CONFIG_FREERTOS_SMP)
     set(kernel_impl "FreeRTOS-Kernel-SMP")
 else()
     set(kernel_impl "FreeRTOS-Kernel")
@@ -79,7 +81,7 @@ list(APPEND srcs
 if(arch STREQUAL "linux")
     list(APPEND srcs
         "${kernel_impl}/portable/${arch}/utils/wait_for_event.c")
-    if(kernel_impl STREQUAL "FreeRTOS-Kernel")
+    if(kernel_impl STREQUAL "FreeRTOS-Kernel-PTHREAD")
         list(APPEND srcs
             "${kernel_impl}/portable/${arch}/port_idf.c")
     endif()
