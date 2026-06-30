@@ -69,50 +69,15 @@
 
 #if ( configUSE_PREEMPTION == 0 )
 
-/* If the cooperative scheduler is being used then a yield should not be
- * performed just because a higher priority task has been woken. */
-    #define taskYIELD_IF_USING_PREEMPTION()
-#else
-    #define taskYIELD_IF_USING_PREEMPTION()    portYIELD_WITHIN_API()
-#endif
-
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskYIELD_CORE( xCoreID )    portYIELD_CORE( xCoreID )
-#endif /* configNUMBER_OF_CORES > 1 */
-
 /* Values that can be assigned to the ucNotifyState member of the TCB. */
 #define taskNOT_WAITING_NOTIFICATION              ( ( uint8_t ) 0 ) /* Must be zero as it is the initialised value. */
 #define taskWAITING_NOTIFICATION                  ( ( uint8_t ) 1 )
 #define taskNOTIFICATION_RECEIVED                 ( ( uint8_t ) 2 )
 
-/*
- * The value used to fill the stack of a task when the task is created.  This
- * is used purely for checking the high water mark for tasks.
- */
-#define tskSTACK_FILL_BYTE                        ( 0xa5U )
-
 /* Bits used to record how a task's stack and TCB were allocated. */
 #define tskDYNAMICALLY_ALLOCATED_STACK_AND_TCB    ( ( uint8_t ) 0 )
 #define tskSTATICALLY_ALLOCATED_STACK_ONLY        ( ( uint8_t ) 1 )
 #define tskSTATICALLY_ALLOCATED_STACK_AND_TCB     ( ( uint8_t ) 2 )
-
-/* If any of the following are set then task stacks are filled with a known
- * value so the high water mark can be determined.  If none of the following are
- * set then don't fill the stack so there is no unnecessary dependency on memset. */
-#if ( ( configCHECK_FOR_STACK_OVERFLOW > 1 ) || ( configUSE_TRACE_FACILITY == 1 ) || ( INCLUDE_uxTaskGetStackHighWaterMark == 1 ) || ( INCLUDE_uxTaskGetStackHighWaterMark2 == 1 ) )
-    #define tskSET_NEW_STACKS_TO_KNOWN_VALUE    1
-#else
-    #define tskSET_NEW_STACKS_TO_KNOWN_VALUE    0
-#endif
-
-/*
- * Macros used by vListTask to indicate which state a task is in.
- */
-#define tskRUNNING_CHAR      ( 'X' )
-#define tskBLOCKED_CHAR      ( 'B' )
-#define tskREADY_CHAR        ( 'R' )
-#define tskDELETED_CHAR      ( 'D' )
-#define tskSUSPENDED_CHAR    ( 'S' )
 
 /*
  * Some kernel aware debuggers require the data the debugger needs access to to
@@ -120,12 +85,6 @@
  */
 #ifdef portREMOVE_STATIC_QUALIFIER
     #define static
-#endif
-
-/* The name allocated to the Idle task.  This can be overridden by defining
- * configIDLE_TASK_NAME in FreeRTOSConfig.h. */
-#ifndef configIDLE_TASK_NAME
-    #define configIDLE_TASK_NAME    "IDLE"
 #endif
 
 /* Reserve space for Core ID and null termination. */
@@ -150,225 +109,6 @@
     #endif
     #define taskRESERVED_TASK_NAME_LENGTH    1U
 #endif /* if ( ( configNUMBER_OF_CORES > 1 ) */
-
-/*-----------------------------------------------------------*/
-
-/* Macros to check if an unblocked task causes a yield on the current core.
- * - pxTCB is the TCB of the task to check
- * - uxTaskPriority is the task's priority
- * - xYieldEqualPriority if the task having equal priority as the currently
- * executing task should cause a yield.
- *
- * In single-core, this macro simply checks the unblocked task has a high enough
- * priority to preempt the current task, and returns pdTRUE if so.
- *
- * In SMP, this macro checks if the unblocked task can preempt either core:
- *   - If a yield is required on the current core, this macro return pdTRUE
- *   - if a yield is required on the other core, this macro will internally
- *     trigger it.
- *
- * - In SMP, these macros must be called from a critical section (where the
- *   kernel locks are taken).
- * - In single-core, these macros must be called from a critical section or when
- *   the scheduler is suspended.
- */
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskIS_YIELD_REQUIRED( pxTCB, xYieldEqualPriority )                                   prvIsYieldRequiredSMP( ( pxTCB ), ( pxTCB )->uxPriority, xYieldEqualPriority )
-    #define taskIS_YIELD_REQUIRED_USING_PRIORITY( pxTCB, uxTaskPriority, xYieldEqualPriority )    prvIsYieldRequiredSMP( ( pxTCB ), uxTaskPriority, xYieldEqualPriority )
-#else
-    #define taskIS_YIELD_REQUIRED( pxTCB, xYieldEqualPriority )                                                                            \
-    ( {                                                                                                                                    \
-        ( ( ( pxTCB )->uxPriority + ( ( xYieldEqualPriority == pdTRUE ) ? 1 : 0 ) ) > pxCurrentTCBs[ 0 ]->uxPriority ) ? pdTRUE : pdFALSE; \
-    } )
-    #define taskIS_YIELD_REQUIRED_USING_PRIORITY( pxTCB, uxTaskPriority, xYieldEqualPriority )                                       \
-    ( {                                                                                                                              \
-        ( void ) pxTCB;                                                                                                              \
-        ( ( uxTaskPriority + ( ( xYieldEqualPriority == pdTRUE ) ? 1 : 0 ) ) >= pxCurrentTCBs[ 0 ]->uxPriority ) ? pdTRUE : pdFALSE; \
-    } )
-#endif /* configNUMBER_OF_CORES > 1 */
-/*-----------------------------------------------------------*/
-
-/* Macros to check if a task has a compatible affinity with a particular core.
- * - xCore is the target core
- * - pxTCB is the task to check
- *
- * This macro will always return true on single core as the concept of core
- * affinity doesn't exist. */
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskIS_AFFINITY_COMPATIBLE( xCore, pxTCB )    ( ( ( ( pxTCB )->xCoreID == xCore ) || ( ( pxTCB )->xCoreID == tskNO_AFFINITY ) ) ? pdTRUE : pdFALSE )
-#else
-    #define taskIS_AFFINITY_COMPATIBLE( xCore, pxTCB ) \
-    ( {                                                \
-        /* xCore and pxTCB are unused */               \
-        ( void ) xCore;                                \
-        ( void ) pxTCB;                                \
-        pdTRUE;                                        \
-    } )
-#endif /* configNUMBER_OF_CORES > 1 */
-/*-----------------------------------------------------------*/
-
-/* Macros to check if a particular task is a currently running.
- *
- * - In SMP, these macros must be called from a critical section (where the
- *   kernel lock is taken).
- * - In single-core, these macros must be called from a critical section or when
- *   the scheduler is suspended */
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskIS_CURRENTLY_RUNNING( pxTCB )                     ( ( ( ( pxTCB ) == pxCurrentTCBs[ 0 ] ) || ( ( pxTCB ) == pxCurrentTCBs[ 1 ] ) ) ? pdTRUE : pdFALSE )
-    #define taskIS_CURRENTLY_RUNNING_ON_CORE( pxTCB, xCoreID )    ( ( ( pxTCB ) == pxCurrentTCBs[ ( xCoreID ) ] ) ? pdTRUE : pdFALSE )
-#else
-    #define taskIS_CURRENTLY_RUNNING( pxTCB )                     ( ( ( pxTCB ) == pxCurrentTCBs[ 0 ] ) ? pdTRUE : pdFALSE )
-    #define taskIS_CURRENTLY_RUNNING_ON_CORE( pxTCB, xCoreID ) \
-    ( {                                                        \
-        /* xCoreID is unused */                                \
-        ( void ) xCoreID;                                      \
-        taskIS_CURRENTLY_RUNNING( pxTCB );                     \
-    } )
-#endif /* configNUMBER_OF_CORES > 1 */
-/*-----------------------------------------------------------*/
-
-/* Macro to check if a particular task can currently be scheduled (i.e., is
- * the scheduler suspended).
- *
- * - In SMP, these macros must be called from a critical section (where the
- *   kernel lock is taken).
- * - In single-core, these macros must be called from a critical section or when
- *   the scheduler is suspended */
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskCAN_BE_SCHEDULED( pxTCB )    prvCheckTaskCanBeScheduledSMP( pxTCB )
-#else
-    #define taskCAN_BE_SCHEDULED( pxTCB )                                           \
-    ( {                                                                             \
-        /* pxTCB is unused */                                                       \
-        ( void ) pxTCB;                                                             \
-        ( ( uxSchedulerSuspended[ 0 ] == ( UBaseType_t ) 0U ) ) ? pdTRUE : pdFALSE; \
-    } )
-#endif /* configNUMBER_OF_CORES > 1 */
-/*-----------------------------------------------------------*/
-
-/* Macro to check if the scheduler is suspended (on the current core)
- *
- * There are various blocking tasks.c APIs that call configASSERT() to check if
- * the API is being called while the scheduler is suspended. However, these
- * asserts are done outside a critical section or interrupt disabled block.
- * Directly checking uxSchedulerSuspended[ portGET_CORE_ID() ] outside a
- * critical section can lead to false positives in SMP. Thus for SMP, we call
- * xTaskGetSchedulerState() instead.
- *
- * Take the following example of an unpinned Task A in SMP calling
- * uxSchedulerSuspended[ portGET_CORE_ID() ]:
- * - Task A calls portGET_CORE_ID() which is 0
- * - Task A gets preempted by Task B, Task A switches to core 1
- * - Task B on core 0 calls vTaskSuspendAll()
- * - Task A checks uxSchedulerSuspended[ 0 ] leading to a false positive
- */
-#if ( configNUMBER_OF_CORES > 1 )
-    #define taskIS_SCHEDULER_SUSPENDED()    ( ( xTaskGetSchedulerState() == taskSCHEDULER_SUSPENDED ) ? pdTRUE : pdFALSE )
-#else
-    #define taskIS_SCHEDULER_SUSPENDED()    ( ( ( uxSchedulerSuspended[ 0 ] != ( UBaseType_t ) 0U ) ) ? pdTRUE : pdFALSE )
-#endif /* configNUMBER_OF_CORES > 1 */
-/*-----------------------------------------------------------*/
-
-#if ( configUSE_PORT_OPTIMISED_TASK_SELECTION == 0 )
-
-/* If configUSE_PORT_OPTIMISED_TASK_SELECTION is 0 then task selection is
- * performed in a generic way that is not optimised to any particular
- * microcontroller architecture. */
-
-/* uxTopReadyPriority holds the priority of the highest priority ready
- * state task. */
-    #define taskRECORD_READY_PRIORITY( uxPriority ) \
-    {                                               \
-        if( ( uxPriority ) > uxTopReadyPriority )   \
-        {                                           \
-            uxTopReadyPriority = ( uxPriority );    \
-        }                                           \
-    } /* taskRECORD_READY_PRIORITY */
-
-/*-----------------------------------------------------------*/
-
-    #if ( configNUMBER_OF_CORES > 1 )
-        #define taskSELECT_HIGHEST_PRIORITY_TASK()    prvSelectHighestPriorityTaskSMP()
-    #else /* if ( configNUMBER_OF_CORES > 1 ) */
-        #define taskSELECT_HIGHEST_PRIORITY_TASK()                            \
-    {                                                                         \
-        UBaseType_t uxTopPriority = uxTopReadyPriority;                       \
-                                                                              \
-        /* Find the highest priority queue that contains ready tasks. */      \
-        while( listLIST_IS_EMPTY( &( pxReadyTasksLists[ uxTopPriority ] ) ) ) \
-        {                                                                     \
-            configASSERT( uxTopPriority );                                    \
-            --uxTopPriority;                                                  \
-        }                                                                     \
-                                                                              \
-        /* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of \
-         * the  same priority get an equal share of the processor time. */                          \
-        listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCBs[ 0 ], &( pxReadyTasksLists[ uxTopPriority ] ) ); \
-        uxTopReadyPriority = uxTopPriority;                                                         \
-    } /* taskSELECT_HIGHEST_PRIORITY_TASK */
-    #endif /* if ( configNUMBER_OF_CORES > 1 ) */
-
-/*-----------------------------------------------------------*/
-
-/* Define away taskRESET_READY_PRIORITY() and portRESET_READY_PRIORITY() as
- * they are only required when a port optimised method of task selection is
- * being used. */
-    #define taskRESET_READY_PRIORITY( uxPriority )
-    #define portRESET_READY_PRIORITY( uxPriority, uxTopReadyPriority )
-
-#else /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
-
-/* If configUSE_PORT_OPTIMISED_TASK_SELECTION is 1 then task selection is
- * performed in a way that is tailored to the particular microcontroller
- * architecture being used. */
-
-/* A port optimised version is provided.  Call the port defined macros. */
-    #define taskRECORD_READY_PRIORITY( uxPriority )    portRECORD_READY_PRIORITY( ( uxPriority ), uxTopReadyPriority )
-
-/*-----------------------------------------------------------*/
-
-    #define taskSELECT_HIGHEST_PRIORITY_TASK()                                                      \
-    {                                                                                               \
-        UBaseType_t uxTopPriority;                                                                  \
-                                                                                                    \
-        /* Find the highest priority list that contains ready tasks. */                             \
-        portGET_HIGHEST_PRIORITY( uxTopPriority, uxTopReadyPriority );                              \
-        configASSERT( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ uxTopPriority ] ) ) > 0 );     \
-        listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCBs[ 0 ], &( pxReadyTasksLists[ uxTopPriority ] ) ); \
-    } /* taskSELECT_HIGHEST_PRIORITY_TASK() */
-
-/*-----------------------------------------------------------*/
-
-/* A port optimised version is provided, call it only if the TCB being reset
- * is being referenced from a ready list.  If it is referenced from a delayed
- * or suspended list then it won't be in a ready list. */
-    #define taskRESET_READY_PRIORITY( uxPriority )                                                     \
-    {                                                                                                  \
-        if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ ( uxPriority ) ] ) ) == ( UBaseType_t ) 0 ) \
-        {                                                                                              \
-            portRESET_READY_PRIORITY( ( uxPriority ), ( uxTopReadyPriority ) );                        \
-        }                                                                                              \
-    }
-
-#endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
-
-/*-----------------------------------------------------------*/
-
-/* pxDelayedTaskList and pxOverflowDelayedTaskList are switched when the tick
- * count overflows. */
-#define taskSWITCH_DELAYED_LISTS()                                                \
-    {                                                                             \
-        List_t * pxTemp;                                                          \
-                                                                                  \
-        /* The delayed tasks list should be empty when the lists are switched. */ \
-        configASSERT( ( listLIST_IS_EMPTY( pxDelayedTaskList ) ) );               \
-                                                                                  \
-        pxTemp = pxDelayedTaskList;                                               \
-        pxDelayedTaskList = pxOverflowDelayedTaskList;                            \
-        pxOverflowDelayedTaskList = pxTemp;                                       \
-        xNumOfOverflows++;                                                        \
-    }
-
 /*-----------------------------------------------------------*/
 
 /*
@@ -383,20 +123,6 @@
 
 /* Other file private variables. --------------------------------*/
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning = pdFALSE;
-
-/* Improve support for OpenOCD. The kernel tracks Ready tasks via priority lists.
- * For tracking the state of remote threads, OpenOCD uses uxTopUsedPriority
- * to determine the number of priority lists to read back from the remote target. */
-const volatile UBaseType_t uxTopUsedPriority = configMAX_PRIORITIES - 1U;
-
-#if ( configGENERATE_RUN_TIME_STATS == 1 )
-
-/* Do not move these variables to function scope as doing so prevents the
- * code working with debuggers that need to remove the static qualifier. */
-PRIVILEGED_DATA static configRUN_TIME_COUNTER_TYPE ulTaskSwitchedInTime[ configNUMBER_OF_CORES ] = { 0UL }; /*< Holds the value of a timer/counter the last time a task was switched in. */
-PRIVILEGED_DATA static volatile configRUN_TIME_COUNTER_TYPE ulTotalRunTime = 0UL;                           /*< Holds the total amount of execution time as defined by the run time counter clock. */
-
-#endif
 
 /* Spinlock required for SMP critical sections. This lock protects all of the
  * kernel's data structures such as various tasks lists, flags, and tick counts. */
@@ -715,10 +441,6 @@ void vTaskStartScheduler( void )
          * or the timer task. */
         configASSERT( xReturn != errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY );
     }
-
-    /* OpenOCD makes use of uxTopUsedPriority for thread debugging. Prevent uxTopUsedPriority
-     * from getting optimized out as it is no longer used by the kernel. */
-    ( void ) uxTopUsedPriority;
 }
 /*----------------------------------------------------------*/
 
