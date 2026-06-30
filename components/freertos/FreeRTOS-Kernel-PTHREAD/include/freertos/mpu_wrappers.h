@@ -63,8 +63,6 @@
         #define vTaskPrioritySet                       MPU_vTaskPrioritySet
         #define vTaskSuspend                           MPU_vTaskSuspend
         #define vTaskResume                            MPU_vTaskResume
-        #define vTaskSuspendAll                        MPU_vTaskSuspendAll
-        #define xTaskResumeAll                         MPU_xTaskResumeAll
         #define xTaskGetTickCount                      MPU_xTaskGetTickCount
         #define uxTaskGetNumberOfTasks                 MPU_uxTaskGetNumberOfTasks
         #define pcTaskGetName                          MPU_pcTaskGetName

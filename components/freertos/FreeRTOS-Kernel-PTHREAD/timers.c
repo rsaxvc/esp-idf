@@ -696,7 +696,7 @@
         TickType_t xTimeNow;
         BaseType_t xTimerListsWereSwitched;
 
-        prvENTER_CRITICAL_OR_SUSPEND_ALL( &xTimerLock );
+        pthread_mutex_lock( &xTimerLock );
         {
             /* Obtain the time now to make an assessment as to whether the timer
              * has expired or not.  If obtaining the time causes the lists to switch
@@ -710,7 +710,7 @@
                 /* The tick count has not overflowed, has the timer expired? */
                 if( ( xListWasEmpty == pdFALSE ) && ( xNextExpireTime <= xTimeNow ) )
                 {
-                    ( void ) prvEXIT_CRITICAL_OR_RESUME_ALL( &xTimerLock );
+                    ( void ) pthread_mutex_unlock( &xTimerLock );
                     prvProcessExpiredTimer( xNextExpireTime, xTimeNow );
                 }
                 else
@@ -729,24 +729,11 @@
                     }
 
                     vQueueWaitForMessageRestricted( xTimerQueue, ( xNextExpireTime - xTimeNow ), xListWasEmpty );
-
-                    if( prvEXIT_CRITICAL_OR_RESUME_ALL( &xTimerLock ) == pdFALSE )
-                    {
-                        /* Yield to wait for either a command to arrive, or the
-                         * block time to expire.  If a command arrived between the
-                         * critical section being exited and this yield then the yield
-                         * will not cause the task to block. */
-                        portYIELD_WITHIN_API();
-                    }
-                    else
-                    {
-                        mtCOVERAGE_TEST_MARKER();
-                    }
                 }
             }
             else
             {
-                ( void ) prvEXIT_CRITICAL_OR_RESUME_ALL( &xTimerLock );
+                ( void ) pthread_mutex_unlock( &xTimerLock );
             }
         }
     }

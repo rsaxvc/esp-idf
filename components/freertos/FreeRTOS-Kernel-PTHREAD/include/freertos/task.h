@@ -89,8 +89,7 @@
  *
  * \ingroup Tasks
  */
-struct tskTaskControlBlock; /* The old naming convention is used to prevent breaking kernel aware debuggers. */
-typedef struct tskTaskControlBlock * TaskHandle_t;
+typedef pthread_t TaskHandle_t;
 
 /**
  * Defines the prototype to which the application task hook function must
@@ -1305,105 +1304,6 @@ void vTaskStartScheduler( void ) PRIVILEGED_FUNCTION;
 void vTaskEndScheduler( void ) PRIVILEGED_FUNCTION;
 
 /** @endcond */
-
-/**
- *
- * Suspends the scheduler without disabling interrupts.  Context switches will
- * not occur while the scheduler is suspended.
- *
- * After calling vTaskSuspendAll () the calling task will continue to execute
- * without risk of being swapped out until a call to xTaskResumeAll () has been
- * made.
- *
- * API functions that have the potential to cause a context switch (for example,
- * xTaskDelayUntil(), xQueueSend(), etc.) must not be called while the scheduler
- * is suspended.
- *
- * Example usage:
- * @code{c}
- * void vTask1( void * pvParameters )
- * {
- *   for( ;; )
- *   {
- *       // Task code goes here.
- *
- *       // ...
- *
- *       // At some point the task wants to perform a long operation during
- *       // which it does not want to get swapped out.  It cannot use
- *       // taskENTER_CRITICAL ()/taskEXIT_CRITICAL () as the length of the
- *       // operation may cause interrupts to be missed - including the
- *       // ticks.
- *
- *       // Prevent the real time kernel swapping out the task.
- *       vTaskSuspendAll ();
- *
- *       // Perform the operation here.  There is no need to use critical
- *       // sections as we have all the microcontroller processing time.
- *       // During this time interrupts will still operate and the kernel
- *       // tick count will be maintained.
- *
- *       // ...
- *
- *       // The operation is complete.  Restart the kernel.
- *       xTaskResumeAll ();
- *   }
- * }
- * @endcode
- * \ingroup SchedulerControl
- */
-void vTaskSuspendAll( void ) PRIVILEGED_FUNCTION;
-
-/**
- *
- * Resumes scheduler activity after it was suspended by a call to
- * vTaskSuspendAll().
- *
- * xTaskResumeAll() only resumes the scheduler.  It does not unsuspend tasks
- * that were previously suspended by a call to vTaskSuspend().
- *
- * @return If resuming the scheduler caused a context switch then pdTRUE is
- *         returned, otherwise pdFALSE is returned.
- *
- * Example usage:
- * @code{c}
- * void vTask1( void * pvParameters )
- * {
- *   for( ;; )
- *   {
- *       // Task code goes here.
- *
- *       // ...
- *
- *       // At some point the task wants to perform a long operation during
- *       // which it does not want to get swapped out.  It cannot use
- *       // taskENTER_CRITICAL ()/taskEXIT_CRITICAL () as the length of the
- *       // operation may cause interrupts to be missed - including the
- *       // ticks.
- *
- *       // Prevent the real time kernel swapping out the task.
- *       vTaskSuspendAll ();
- *
- *       // Perform the operation here.  There is no need to use critical
- *       // sections as we have all the microcontroller processing time.
- *       // During this time interrupts will still operate and the real
- *       // time kernel tick count will be maintained.
- *
- *       // ...
- *
- *       // The operation is complete.  Restart the kernel.  We want to force
- *       // a context switch - but there is no point if resuming the scheduler
- *       // caused a context switch already.
- *       if( !xTaskResumeAll () )
- *       {
- *            taskYIELD ();
- *       }
- *   }
- * }
- * @endcode
- * \ingroup SchedulerControl
- */
-BaseType_t xTaskResumeAll( void ) PRIVILEGED_FUNCTION;
 
 /*-----------------------------------------------------------
 * TASK UTILITIES
@@ -2882,12 +2782,6 @@ void vTaskRemoveFromUnorderedEventList( ListItem_t * pxEventListItem,
 portDONT_DISCARD void vTaskSwitchContext( void ) PRIVILEGED_FUNCTION;
 
 /*
- * THESE FUNCTIONS MUST NOT BE USED FROM APPLICATION CODE.  THEY ARE USED BY
- * THE EVENT BITS MODULE.
- */
-TickType_t uxTaskResetEventItemValue( void ) PRIVILEGED_FUNCTION;
-
-/*
  * Return the handle of the calling task.
  */
 TaskHandle_t xTaskGetCurrentTaskHandle( void ) PRIVILEGED_FUNCTION;
@@ -2964,12 +2858,6 @@ void vTaskStepTick( TickType_t xTicksToJump ) PRIVILEGED_FUNCTION;
  * entered to ensure it is ok to proceed into the sleep mode.
  */
 eSleepModeStatus eTaskConfirmSleepModeStatus( void ) PRIVILEGED_FUNCTION;
-
-/*
- * For internal use only.  Increment the mutex held count when a mutex is
- * taken and return the handle of the task that has taken the mutex.
- */
-TaskHandle_t pvTaskIncrementMutexHeldCount( void ) PRIVILEGED_FUNCTION;
 
 /*
  * For internal use only.  Same as vTaskSetTimeOutState(), but without a critical

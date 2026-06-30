@@ -66,7 +66,7 @@
 /*lint -save -e9026 Function like macros allowed and needed here so they can be overridden. */
 #ifndef sbRECEIVE_COMPLETED
     #define sbRECEIVE_COMPLETED( pxStreamBuffer )                               \
-    prvENTER_CRITICAL_OR_SUSPEND_ALL( &( pxStreamBuffer->xStreamBufferLock ) ); \
+    pthread_mutex_lock( &( pxStreamBuffer->mutex ) );                           \
     {                                                                           \
         if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )                    \
         {                                                                       \
@@ -76,7 +76,7 @@
             ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                      \
         }                                                                       \
     }                                                                           \
-    ( void ) prvEXIT_CRITICAL_OR_RESUME_ALL( &( pxStreamBuffer->xStreamBufferLock ) );
+    ( void ) pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
 #endif /* sbRECEIVE_COMPLETED */
 
 /* If user has provided a per-instance receive complete callback, then
@@ -143,7 +143,7 @@
  */
 #ifndef sbSEND_COMPLETED
     #define sbSEND_COMPLETED( pxStreamBuffer )                                  \
-    prvENTER_CRITICAL_OR_SUSPEND_ALL( &( pxStreamBuffer->xStreamBufferLock ) ); \
+    pthread_mutex_lock( &( pxStreamBuffer->mutex ) );                           \
     {                                                                           \
         if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )                 \
         {                                                                       \
@@ -153,7 +153,7 @@
             ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                   \
         }                                                                       \
     }                                                                           \
-    ( void ) prvEXIT_CRITICAL_OR_RESUME_ALL( &( pxStreamBuffer->xStreamBufferLock ) );
+    ( void ) pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
 #endif /* sbSEND_COMPLETED */
 
 /* If user has provided a per-instance send completed callback, then
@@ -176,7 +176,7 @@
 #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
 
 
-#ifndef sbSEND_COMPLETE_FROM_ISR
+#if !defined(sbSEND_COMPLETE_FROM_ISR) && 0
     #define sbSEND_COMPLETE_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken )       \
     {                                                                                   \
         UBaseType_t uxSavedInterruptStatus;                                             \
@@ -246,7 +246,8 @@ typedef struct StreamBufferDef_t                 /*lint !e9058 Style convention 
         StreamBufferCallbackFunction_t pxReceiveCompletedCallback; /* Optional callback called on receive complete.  sbRECEIVE_COMPLETED is called if this is NULL. */
     #endif
 
-    portMUX_TYPE xStreamBufferLock; /* Spinlock required for SMP critical sections */
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
 } StreamBuffer_t;
 
 /*
@@ -392,7 +393,8 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
             /* Initialize the stream buffer's spinlock separately, as
              * prvInitialiseNewStreamBuffer() is also called from
              * xStreamBufferReset(). */
-            portMUX_INITIALIZE( &( ( ( StreamBuffer_t * ) pucAllocatedMemory )->xStreamBufferLock ) );
+            pthread_mutex_init( &( ( ( StreamBuffer_t * ) pucAllocatedMemory )->mutex ), NULL );
+            pthread_cond_init( &( ( ( StreamBuffer_t * ) pucAllocatedMemory )->cond ), NULL );
 
             traceSTREAM_BUFFER_CREATE( ( ( StreamBuffer_t * ) pucAllocatedMemory ), xIsMessageBuffer );
         }
@@ -476,7 +478,8 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
             /* Initialize the stream buffer's spinlock separately, as
              * prvInitialiseNewStreamBuffer() is also called from
              * xStreamBufferReset(). */
-            portMUX_INITIALIZE( &( pxStreamBuffer->xStreamBufferLock ) );
+            pthread_mutex_init( &( ( ( StreamBuffer_t * ) pxStreamBuffer )->mutex ), NULL );
+            pthread_cond_init( &( ( ( StreamBuffer_t * ) pxStreamBuffer )->cond ), NULL );
 
             traceSTREAM_BUFFER_CREATE( pxStreamBuffer, xIsMessageBuffer );
 
@@ -575,7 +578,7 @@ BaseType_t xStreamBufferReset( StreamBufferHandle_t xStreamBuffer )
     #endif
 
     /* Can only reset a message buffer if there are no tasks blocked on it. */
-    taskENTER_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+    pthread_mutex_lock( &( pxStreamBuffer->mutex) );
     {
         if( ( pxStreamBuffer->xTaskWaitingToReceive == NULL ) && ( pxStreamBuffer->xTaskWaitingToSend == NULL ) )
         {
@@ -605,7 +608,7 @@ BaseType_t xStreamBufferReset( StreamBufferHandle_t xStreamBuffer )
             xReturn = pdPASS;
         }
     }
-    taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+    pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
 
     return xReturn;
 }
@@ -751,7 +754,7 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
         {
             /* Wait until the required number of bytes are free in the message
              * buffer. */
-            taskENTER_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+            pthread_mutex_lock( &( pxStreamBuffer->mutex ) );
             {
                 xSpace = xStreamBufferSpacesAvailable( pxStreamBuffer );
 
@@ -766,26 +769,22 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
                 }
                 else
                 {
-                    taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+                    pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
                     break;
                 }
             }
-            taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+            pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
 
             traceBLOCKING_ON_STREAM_BUFFER_SEND( xStreamBuffer );
             ( void ) xTaskNotifyWait( ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
             /* In SMP mode, the task may have been woken and scheduled on
              * another core. Hence, we must clear the xTaskWaitingToSend
              * handle in a critical section. */
-            #if ( configNUMBER_OF_CORES > 1 )
-                taskENTER_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
-            #endif /* configNUMBER_OF_CORES > 1 */
+            pthread_mutex_lock( &( pxStreamBuffer->mutex ) );
             {
                 pxStreamBuffer->xTaskWaitingToSend = NULL;
             }
-            #if ( configNUMBER_OF_CORES > 1 )
-                taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
-            #endif /* configNUMBER_OF_CORES > 1 */
+            pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
         } while( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE );
     }
     else
@@ -828,6 +827,7 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
 }
 /*-----------------------------------------------------------*/
 
+#if 0 //rsa
 size_t xStreamBufferSendFromISR( StreamBufferHandle_t xStreamBuffer,
                                  const void * pvTxData,
                                  size_t xDataLengthBytes,
@@ -877,6 +877,7 @@ size_t xStreamBufferSendFromISR( StreamBufferHandle_t xStreamBuffer,
 
     return xReturn;
 }
+#endif
 /*-----------------------------------------------------------*/
 
 static size_t prvWriteMessageToBuffer( StreamBuffer_t * const pxStreamBuffer,
@@ -958,7 +959,7 @@ size_t xStreamBufferReceive( StreamBufferHandle_t xStreamBuffer,
     {
         /* Checking if there is data and clearing the notification state must be
          * performed atomically. */
-        taskENTER_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+        pthread_mutex_lock( &( pxStreamBuffer->mutex ) );
         {
             xBytesAvailable = prvBytesInBuffer( pxStreamBuffer );
 
@@ -981,7 +982,7 @@ size_t xStreamBufferReceive( StreamBufferHandle_t xStreamBuffer,
                 mtCOVERAGE_TEST_MARKER();
             }
         }
-        taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
+        pthread_mutex_lock( &( pxStreamBuffer->mutex ) );
 
         if( xBytesAvailable <= xBytesToStoreMessageLength )
         {
@@ -992,15 +993,11 @@ size_t xStreamBufferReceive( StreamBufferHandle_t xStreamBuffer,
             /* In SMP mode, the task may have been woken and scheduled on
              * another core. Hence, we must clear the xTaskWaitingToReceive
              * handle in a critical section. */
-            #if ( configNUMBER_OF_CORES > 1 )
-                taskENTER_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
-            #endif /* configNUMBER_OF_CORES > 1 */
+            pthread_mutex_lock( &( pxStreamBuffer->mutex ) );
             {
                 pxStreamBuffer->xTaskWaitingToReceive = NULL;
             }
-            #if ( configNUMBER_OF_CORES > 1 )
-                taskEXIT_CRITICAL( &( pxStreamBuffer->xStreamBufferLock ) );
-            #endif /* configNUMBER_OF_CORES > 1 */
+            pthread_mutex_unlock( &( pxStreamBuffer->mutex) );
 
             /* Recheck the data available after blocking. */
             xBytesAvailable = prvBytesInBuffer( pxStreamBuffer );
@@ -1084,7 +1081,7 @@ size_t xStreamBufferNextMessageLengthBytes( StreamBufferHandle_t xStreamBuffer )
     return xReturn;
 }
 /*-----------------------------------------------------------*/
-
+#if 0 //rsa
 size_t xStreamBufferReceiveFromISR( StreamBufferHandle_t xStreamBuffer,
                                     void * pvRxData,
                                     size_t xBufferLengthBytes,
@@ -1140,6 +1137,7 @@ size_t xStreamBufferReceiveFromISR( StreamBufferHandle_t xStreamBuffer,
 
     return xReceivedLength;
 }
+#endif
 /*-----------------------------------------------------------*/
 
 static size_t prvReadMessageFromBuffer( StreamBuffer_t * pxStreamBuffer,
@@ -1252,8 +1250,7 @@ BaseType_t xStreamBufferIsFull( StreamBufferHandle_t xStreamBuffer )
     return xReturn;
 }
 /*-----------------------------------------------------------*/
-
-BaseType_t xStreamBufferSendCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
+/* rsa BaseType_t xStreamBufferSendCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
                                               BaseType_t * pxHigherPriorityTaskWoken )
 {
     StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
@@ -1282,9 +1279,10 @@ BaseType_t xStreamBufferSendCompletedFromISR( StreamBufferHandle_t xStreamBuffer
 
     return xReturn;
 }
+*/
 /*-----------------------------------------------------------*/
 
-BaseType_t xStreamBufferReceiveCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
+/*rsa BaseType_t xStreamBufferReceiveCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
                                                  BaseType_t * pxHigherPriorityTaskWoken )
 {
     StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
@@ -1312,7 +1310,7 @@ BaseType_t xStreamBufferReceiveCompletedFromISR( StreamBufferHandle_t xStreamBuf
     portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
 
     return xReturn;
-}
+} */
 /*-----------------------------------------------------------*/
 
 static size_t prvWriteBytesToBuffer( StreamBuffer_t * const pxStreamBuffer,

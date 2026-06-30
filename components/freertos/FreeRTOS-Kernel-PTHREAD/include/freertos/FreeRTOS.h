@@ -1332,48 +1332,51 @@ typedef struct xSTATIC_TCB
     #endif
 } StaticTask_t;
 
-/*
- * In line with software engineering best practice, especially when supplying a
- * library that is likely to change in future versions, FreeRTOS implements a
- * strict data hiding policy.  This means the Queue structure used internally by
- * FreeRTOS is not accessible to application code.  However, if the application
- * writer wants to statically allocate the memory required to create a queue
- * then the size of the queue object needs to be known.  The StaticQueue_t
- * structure below is provided for this purpose.  Its sizes and alignment
- * requirements are guaranteed to match those of the genuine structure, no
- * matter which architecture is being used, and no matter how the values in
- * FreeRTOSConfig.h are set.  Its contents are somewhat obfuscated in the hope
- * users will recognise that it would be unwise to make direct use of the
- * structure members.
- */
-typedef struct xSTATIC_QUEUE
+typedef struct QueuePointers
 {
-    void * pvDummy1[ 3 ];
+    int8_t * pcTail;     /*< Points to the byte at the end of the queue storage area.  Once more byte is allocated than necessary to store the queue items, this is used as a marker. */
+    int8_t * pcReadFrom; /*< Points to the last place that a queued item was read from when the structure is used as a queue. */
+} QueuePointers_t;
+
+
+typedef struct SemaphoreData
+{
+    pthread_t xMutexHolder; /**< The handle of the task that holds the mutex. */
+    UBaseType_t uxRecursiveCallCount; /**< Maintains a count of the number of times a recursive mutex has been recursively 'taken' when the structure is used as a mutex. */
+} SemaphoreData_t;
+
+/*
+ * Definition of the queue used by the scheduler.
+ * Items are queued by copy, not reference.  See the following link for the
+ * rationale: https://www.FreeRTOS.org/Embedded-RTOS-Queues.html
+ */
+typedef struct QueueDefinition
+{
+    int8_t * pcHead;           /*< Points to the beginning of the queue storage area. */
+    int8_t * pcWriteTo;        /*< Points to the free next place in the storage area. */
 
     union
     {
-        void * pvDummy2;
-        UBaseType_t uxDummy2;
+        QueuePointers_t xQueue;     /*< Data required exclusively when this structure is used as a queue. */
+        SemaphoreData_t xSemaphore; /*< Data required exclusively when this structure is used as a semaphore. */
     } u;
 
-    StaticList_t xDummy3[ 2 ];
-    UBaseType_t uxDummy4[ 3 ];
-    uint8_t ucDummy5[ 2 ];
+    volatile UBaseType_t uxMessagesWaiting; /*< The number of items currently in the queue. */
+    UBaseType_t uxLength;                   /*< The length of the queue defined as the number of items it will hold, not the number of bytes. */
+    UBaseType_t uxItemSize;                 /*< The size of each items that the queue will hold. */
 
     #if ( ( configSUPPORT_STATIC_ALLOCATION == 1 ) && ( configSUPPORT_DYNAMIC_ALLOCATION == 1 ) )
-        uint8_t ucDummy6;
-    #endif
-
-    #if ( configUSE_QUEUE_SETS == 1 )
-        void * pvDummy7;
+        uint8_t ucStaticallyAllocated; /*< Set to pdTRUE if the memory used by the queue was statically allocated to ensure no attempt is made to free the memory. */
     #endif
 
     #if ( configUSE_TRACE_FACILITY == 1 )
-        UBaseType_t uxDummy8;
-        uint8_t ucDummy9;
+        UBaseType_t uxQueueNumber;
+        uint8_t ucQueueType;
     #endif
-    portMUX_TYPE xDummyQueueLock;
-} StaticQueue_t;
+
+    portMUX_TYPE xQueueLock; /* Spinlock required for SMP critical sections */
+} QueueDefinition;
+typedef QueueDefinition StaticQueue_t;
 typedef StaticQueue_t StaticSemaphore_t;
 
 /*

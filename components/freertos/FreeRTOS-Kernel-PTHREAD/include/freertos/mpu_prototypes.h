@@ -72,8 +72,6 @@ void MPU_vTaskPrioritySet( TaskHandle_t xTask,
 void MPU_vTaskSuspend( TaskHandle_t xTaskToSuspend ) FREERTOS_SYSTEM_CALL;
 void MPU_vTaskResume( TaskHandle_t xTaskToResume ) FREERTOS_SYSTEM_CALL;
 void MPU_vTaskStartScheduler( void ) FREERTOS_SYSTEM_CALL;
-void MPU_vTaskSuspendAll( void ) FREERTOS_SYSTEM_CALL;
-BaseType_t MPU_xTaskResumeAll( void ) FREERTOS_SYSTEM_CALL;
 TickType_t MPU_xTaskGetTickCount( void ) FREERTOS_SYSTEM_CALL;
 UBaseType_t MPU_uxTaskGetNumberOfTasks( void ) FREERTOS_SYSTEM_CALL;
 char * MPU_pcTaskGetName( TaskHandle_t xTaskToQuery ) FREERTOS_SYSTEM_CALL;
