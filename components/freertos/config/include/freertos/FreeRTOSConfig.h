@@ -210,7 +210,7 @@
 #define INCLUDE_vTaskDelete                        1
 #define INCLUDE_vTaskSuspend                       1
 #define INCLUDE_vTaskDelay                         1
-#define INCLUDE_xTaskGetIdleTaskHandle             1
+#define INCLUDE_xTaskGetIdleTaskHandle             !CONFIG_IDF_TARGET_LINUX
 #define INCLUDE_xTaskAbortDelay                    1
 #define INCLUDE_xSemaphoreGetMutexHolder           1
 #define INCLUDE_xTaskGetHandle                     1
