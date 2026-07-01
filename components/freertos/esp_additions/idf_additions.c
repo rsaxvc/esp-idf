@@ -26,7 +26,7 @@
 
 /* ---------------------------------- Tasks --------------------------------- */
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     BaseType_t xTaskCreatePinnedToCoreWithCaps( TaskFunction_t pvTaskCode,
                                                 const char * const pcName,
@@ -79,7 +79,7 @@ err:
 #endif /* if ( configSUPPORT_STATIC_ALLOCATION == 1 ) */
 /*----------------------------------------------------------*/
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     static void prvTaskDeleteWithCaps( TaskHandle_t xTaskToDelete )
     {
@@ -192,7 +192,7 @@ err:
 
 /* ---------------------------------- Queue --------------------------------- */
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     QueueHandle_t xQueueCreateWithCaps( UBaseType_t uxQueueLength,
                                         UBaseType_t uxItemSize,
@@ -238,7 +238,7 @@ err:
 #endif /* if ( configSUPPORT_STATIC_ALLOCATION == 1 ) */
 /*----------------------------------------------------------*/
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     void vQueueDeleteWithCaps( QueueHandle_t xQueue )
     {
@@ -264,7 +264,7 @@ err:
 
 /* -------------------------------- Semaphore ------------------------------- */
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     SemaphoreHandle_t xSemaphoreCreateGenericWithCaps( UBaseType_t uxMaxCount,
                                                        UBaseType_t uxInitialCount,
@@ -311,7 +311,7 @@ err:
 #endif /* if ( configSUPPORT_STATIC_ALLOCATION == 1 ) */
 /*----------------------------------------------------------*/
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     void vSemaphoreDeleteWithCaps( SemaphoreHandle_t xSemaphore )
     {
@@ -336,7 +336,7 @@ err:
 
 /* ------------------------- Stream & Message Buffers ----------------------- */
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     StreamBufferHandle_t xStreamBufferGenericCreateWithCaps( size_t xBufferSizeBytes,
                                                              size_t xTriggerLevelBytes,
@@ -383,7 +383,7 @@ err:
 #endif /* if ( configSUPPORT_STATIC_ALLOCATION == 1 ) */
 /*----------------------------------------------------------*/
 
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+#if ( configSUPPORT_STATIC_ALLOCATION == 1 ) && !CONFIG_IDF_TARGET_LINUX
 
     void vStreamBufferGenericDeleteWithCaps( StreamBufferHandle_t xStreamBuffer,
                                              BaseType_t xIsMessageBuffer )
