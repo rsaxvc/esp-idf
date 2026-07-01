@@ -13,7 +13,7 @@
 #include "freertos/queue.h"
 #include "freertos/ringbuf.h"
 #include "esp_heap_caps.h"
-
+#if !CONFIG_IDF_TARGET_LINUX
 // ------------------------------------------------- Macros and Types --------------------------------------------------
 
 //32-bit alignment macros
@@ -1540,3 +1540,5 @@ void vRingbufferDeleteWithCaps(RingbufHandle_t xRingbuffer)
     heap_caps_free(pxStaticRingbuffer);
     heap_caps_free(pucRingbufferStorage);
 }
+
+#endif //!CONFIG_IDF_TARGET_LINUX
