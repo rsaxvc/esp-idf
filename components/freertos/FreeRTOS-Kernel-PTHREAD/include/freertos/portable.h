@@ -110,7 +110,7 @@
  * the order that the port expects to find them.
  *
  */
-pthread_t pxPortInitialiseStack( TaskFunction_t pxCode,
+TCB_t * pxPortInitialiseStack( TaskFunction_t pxCode,
                                      void * pvParameters ) PRIVILEGED_FUNCTION;
 
 /*

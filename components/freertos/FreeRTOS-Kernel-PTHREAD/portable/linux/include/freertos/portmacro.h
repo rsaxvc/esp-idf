@@ -74,6 +74,8 @@ typedef pthread_mutex_t portMUX_TYPE;
 typedef struct tskTaskControlBlock
 {
     pthread_t tid;
+    TaskFunction_t pxCode;
+    void * pvParams;
 #if configNUM_THREAD_LOCAL_STORAGE_POINTERS != 0
     void * pvThreadLocalStoragePointers[configNUM_THREAD_LOCAL_STORAGE_POINTERS];
 #endif
@@ -132,9 +134,8 @@ void vPortExitCritical(portMUX_TYPE *mux);
 
 /*-----------------------------------------------------------*/
 
-extern void vPortThreadDying( void * pxTaskToDelete, volatile BaseType_t *pxPendYield );
-extern void vPortCancelThread( void * pxTaskToDelete );
-#define portPRE_TASK_DELETE_HOOK( pvTaskToDelete, pxPendYield ) vPortThreadDying( ( pvTaskToDelete ), ( pxPendYield ) )
+extern void vPortThreadDying( TCB_t * pxTaskToDelete, volatile BaseType_t *pxPendYield );
+extern void vPortCancelThread( TCB_t * pxTaskToDelete );
 #define portCLEAN_UP_TCB( pxTCB )   vPortCancelThread( pxTCB )
 /*-----------------------------------------------------------*/
 

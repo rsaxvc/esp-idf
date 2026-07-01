@@ -72,10 +72,9 @@
 /*-----------------------------------------------------------*/
 
 static pthread_once_t hSigSetupThread = PTHREAD_ONCE_INIT;
-static pthread_t hMainThread = ( pthread_t )NULL;
 /*-----------------------------------------------------------*/
 
-static BaseType_t xSchedulerEnd = pdFALSE;
+static volatile BaseType_t xSchedulerEnd = pdFALSE;
 static struct timespec ts_init;
 
 /*-----------------------------------------------------------*/
@@ -98,9 +97,9 @@ static void prvFatalError( const char *pcCall, int iErrno )
 TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
                                     void *pvParameters )
 {
-    Thread_t *thread;
+    TCB_t *thread;
     pthread_attr_t xThreadAttributes;
-    size_t ulStackSize;
+    //size_t ulStackSize;
     int iRet;
 
     (void)pthread_once( &hSigSetupThread, prvSetupSignalsAndSchedulerPolicy );
@@ -108,26 +107,22 @@ TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
     /*
      * Store the additional thread data
      */
-    thread = calloc(sizeof(Thread_t), 1);
+    thread = calloc(1, sizeof(TCB_t));
 
     thread->pxCode = pxCode;
     thread->pvParams = pvParameters;
 
     pthread_attr_init( &xThreadAttributes );
-    pthread_attr_setstack( &xThreadAttributes, pxEndOfStack, ulStackSize );
+    //pthread_attr_setstack( &xThreadAttributes, pxEndOfStack, ulStackSize );
 
-    //rsa vPortEnterCritical();
-
-    iRet = pthread_create( &thread->pthread, &xThreadAttributes,
+    iRet = pthread_create( &thread->tid, &xThreadAttributes,
                            prvWaitForStart, thread );
     if ( iRet )
     {
         prvFatalError( "pthread_create", iRet );
     }
 
-    //rsa vPortExitCritical();
-
-    return thread->pthread;
+    return thread;
 }
 /*-----------------------------------------------------------*/
 
@@ -137,23 +132,16 @@ TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
  */
 BaseType_t xPortStartScheduler( void )
 {
-    int iSignal;
-    sigset_t xSignals;
-
     clock_gettime(CLOCK_MONOTONIC, &ts_init);
-    hMainThread = pthread_self();
 
     /* Start the timer that generates the tick ISR(SIGALRM).
        Interrupts are disabled here already. */
     prvSetupTimerInterrupt();
 
     /* Wait until signaled by vPortEndScheduler(). */
-    sigemptyset( &xSignals );
-    sigaddset( &xSignals, SIG_RESUME );
-
     while ( !xSchedulerEnd )
     {
-        sigwait( &xSignals, &iSignal );
+        usleep(100000);
     }
 
 #if ( configUSE_TIMERS == 1 )
@@ -271,8 +259,6 @@ void prvSetupTimerInterrupt( void )
 
 static void vPortSystemTickHandler( int sig )
 {
-    //uxCriticalNesting++; /* Signals are blocked in this signal handler. */
-
     /* Tick Increment, accounting for any lost signals or drift in
      * the timer. */
 /*
@@ -284,16 +270,11 @@ static void vPortSystemTickHandler( int sig )
 /*        prvTickCount++;
  *    } while (prvTickCount < xExpectedTicks);
 */
-
-   // uxCriticalNesting--;
 }
+
 /*-----------------------------------------------------------*/
 
-void vPortThreadDying( void * pxTaskToDelete, volatile BaseType_t *pxPendYield )
-{
-}
-
-void vPortCancelThread( void * pxTaskToDelete )
+void vPortCancelThread( TCB_t * pxTaskToDelete )
 {
     #if ( CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK )
         /* Call the user defined task pre-deletion hook before canceling the thread */
@@ -301,14 +282,14 @@ void vPortCancelThread( void * pxTaskToDelete )
         vTaskPreDeletionHook( pxTaskToDelete );
     #endif /* CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK */
 
-    pthread_cancel( pxTaskToDelete );
-    pthread_join( pxTaskToDelete, NULL );
+    pthread_cancel( pxTaskToDelete->tid );
+    pthread_join( pxTaskToDelete->tid, NULL );
 }
 /*-----------------------------------------------------------*/
 
 static void *prvWaitForStart( void * pvParams )
 {
-    Thread_t *pxThread = pvParams;
+    TCB_t *pxThread = pvParams;
 
     /* Call the task's entry point. */
     pxThread->pxCode( pxThread->pvParams );
@@ -328,8 +309,6 @@ static void prvSetupSignalsAndSchedulerPolicy( void )
 {
     struct sigaction sigtick;
     int iRet;
-
-    hMainThread = pthread_self();
 
     sigtick.sa_flags = 0;
     sigtick.sa_handler = vPortSystemTickHandler;

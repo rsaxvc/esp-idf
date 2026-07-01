@@ -249,7 +249,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     /* Store the task name in the TCB. */
     if( pcName != NULL )
     {
-        configASSERT( 0 == pthread_setname_np( pxNewTask, pcName ));
+        configASSERT( 0 == pthread_setname_np( pxNewTask->tid, pcName ));
     }
     else
     {
