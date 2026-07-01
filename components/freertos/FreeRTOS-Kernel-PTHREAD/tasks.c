@@ -67,18 +67,6 @@
     #include <stdio.h>
 #endif /* configUSE_STATS_FORMATTING_FUNCTIONS == 1 ) */
 
-#if ( configUSE_PREEMPTION == 0 )
-
-/* Values that can be assigned to the ucNotifyState member of the TCB. */
-#define taskNOT_WAITING_NOTIFICATION              ( ( uint8_t ) 0 ) /* Must be zero as it is the initialised value. */
-#define taskWAITING_NOTIFICATION                  ( ( uint8_t ) 1 )
-#define taskNOTIFICATION_RECEIVED                 ( ( uint8_t ) 2 )
-
-/* Bits used to record how a task's stack and TCB were allocated. */
-#define tskDYNAMICALLY_ALLOCATED_STACK_AND_TCB    ( ( uint8_t ) 0 )
-#define tskSTATICALLY_ALLOCATED_STACK_ONLY        ( ( uint8_t ) 1 )
-#define tskSTATICALLY_ALLOCATED_STACK_AND_TCB     ( ( uint8_t ) 2 )
-
 /*
  * Some kernel aware debuggers require the data the debugger needs access to to
  * be global, rather than file scope.
@@ -111,6 +99,7 @@
 #endif /* if ( ( configNUMBER_OF_CORES > 1 ) */
 /*-----------------------------------------------------------*/
 
+
 /*
  * Several functions take a TaskHandle_t parameter that can optionally be NULL,
  * where NULL is used to indicate that the handle of the currently executing
@@ -119,10 +108,11 @@
  *
  * In SMP, calling xTaskGetCurrentTaskHandle() ensures atomic access to pxCurrentTCBs
  */
-#define prvGetTCBFromHandle( pxHandle ) ( pxHandle )
+#define prvGetTCBFromHandle( pxHandle ) ( pxHandle ) ? ( pxHandle ) : xTaskGetCurrentTaskHandle()
 
 /* Other file private variables. --------------------------------*/
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning = pdFALSE;
+PRIVILEGED_DATA static pthread_key_t task_handle_key;
 
 /* Spinlock required for SMP critical sections. This lock protects all of the
  * kernel's data structures such as various tasks lists, flags, and tick counts. */
@@ -242,7 +232,9 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     /* This is used as an array index so must ensure it's not too large. */
     configASSERT( uxPriority < configMAX_PRIORITIES );
 
-    pthread_t pxNewTask = pxPortInitialiseStack( pxTaskCode, pvParameters );
+    taskENTER_CRITICAL( &xKernelLock );
+
+    TCB_t * pxNewTask = pxPortInitialiseStack( pxTaskCode, pvParameters );
     if( pxCreatedTask != NULL )
     {
         /* Pass the handle out in an anonymous way.  The handle can be used to
@@ -264,6 +256,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
         mtCOVERAGE_TEST_MARKER();
     }
 
+    taskEXIT_CRITICAL( &xKernelLock );
 }
 /*-----------------------------------------------------------*/
 
@@ -271,9 +264,11 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
 
     void vTaskDelete( TaskHandle_t xTaskToDelete )
     {
+        taskENTER_CRITICAL( &xKernelLock );
         traceTASK_DELETE( xTaskToDelete );
         portPRE_TASK_DELETE_HOOK( xTaskToDelete, pdFALSE);
         portCLEAN_UP_TCB( xTaskToDelete );
+        taskEXIT_CRITICAL( &xKernelLock );
     }
 
 #endif /* INCLUDE_vTaskDelete */
@@ -616,11 +611,9 @@ BaseType_t xTaskIncrementTick( void )
         if( ( xIndex >= 0 ) &&
             ( xIndex < configNUM_THREAD_LOCAL_STORAGE_POINTERS ) )
         {
-            /*
-            pxTCB = prvGetTCBFromHandle( xTaskToSet );
+            tskTCB * pxTCB = prvGetTCBFromHandle( xTaskToSet );
             configASSERT( pxTCB != NULL );
             pxTCB->pvThreadLocalStoragePointers[ xIndex ] = pvValue;
-            */
         }
     }
 
@@ -636,10 +629,10 @@ BaseType_t xTaskIncrementTick( void )
 
         if( ( xIndex >= 0 ) &&
             ( xIndex < configNUM_THREAD_LOCAL_STORAGE_POINTERS ) )
-        {/*
+        {
             TCB_t * pxTCB = prvGetTCBFromHandle( xTaskToQuery );
             pvReturn = pxTCB->pvThreadLocalStoragePointers[ xIndex ];
-        */}
+        }
         else
         {
             pvReturn = NULL;
@@ -655,7 +648,7 @@ BaseType_t xTaskIncrementTick( void )
 
     TaskHandle_t xTaskGetCurrentTaskHandle( void )
     {
-        return pthread_self();
+        return pthread_getspecific(task_handle_key);
     }
 
 #endif /* ( ( INCLUDE_xTaskGetCurrentTaskHandle == 1 ) || ( configUSE_MUTEXES == 1 ) ) */
@@ -772,242 +765,6 @@ BaseType_t xTaskIncrementTick( void )
     }
 
 #endif /* ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) */
-/*-----------------------------------------------------------*/
-
-#if ( ( configUSE_TRACE_FACILITY == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) )
-
-    void vTaskList( char * pcWriteBuffer )
-    {
-        TaskStatus_t * pxTaskStatusArray;
-        UBaseType_t uxArraySize, x;
-        char cStatus;
-
-        /*
-         * PLEASE NOTE:
-         *
-         * This function is provided for convenience only, and is used by many
-         * of the demo applications.  Do not consider it to be part of the
-         * scheduler.
-         *
-         * vTaskList() calls uxTaskGetSystemState(), then formats part of the
-         * uxTaskGetSystemState() output into a human readable table that
-         * displays task: names, states, priority, stack usage and task number.
-         * Stack usage specified as the number of unused StackType_t words stack can hold
-         * on top of stack - not the number of bytes.
-         *
-         * vTaskList() has a dependency on the sprintf() C library function that
-         * might bloat the code size, use a lot of stack, and provide different
-         * results on different platforms.  An alternative, tiny, third party,
-         * and limited functionality implementation of sprintf() is provided in
-         * many of the FreeRTOS/Demo sub-directories in a file called
-         * printf-stdarg.c (note printf-stdarg.c does not provide a full
-         * snprintf() implementation!).
-         *
-         * It is recommended that production systems call uxTaskGetSystemState()
-         * directly to get access to raw stats data, rather than indirectly
-         * through a call to vTaskList().
-         */
-
-
-        /* Make sure the write buffer does not contain a string. */
-        *pcWriteBuffer = ( char ) 0x00;
-
-        /* Take a snapshot of the number of tasks in case it changes while this
-         * function is executing. */
-        uxArraySize = uxCurrentNumberOfTasks;
-
-        /* Allocate an array index for each task.  NOTE!  if
-         * configSUPPORT_DYNAMIC_ALLOCATION is set to 0 then pvPortMalloc() will
-         * equate to NULL. */
-        pxTaskStatusArray = pvPortMalloc( uxCurrentNumberOfTasks * sizeof( TaskStatus_t ) ); /*lint !e9079 All values returned by pvPortMalloc() have at least the alignment required by the MCU's stack and this allocation allocates a struct that has the alignment requirements of a pointer. */
-
-        if( pxTaskStatusArray != NULL )
-        {
-            /* Generate the (binary) data. */
-            uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, NULL );
-
-            /* Create a human readable table from the binary data. */
-            for( x = 0; x < uxArraySize; x++ )
-            {
-                switch( pxTaskStatusArray[ x ].eCurrentState )
-                {
-                    case eRunning:
-                        cStatus = tskRUNNING_CHAR;
-                        break;
-
-                    case eReady:
-                        cStatus = tskREADY_CHAR;
-                        break;
-
-                    case eBlocked:
-                        cStatus = tskBLOCKED_CHAR;
-                        break;
-
-                    case eSuspended:
-                        cStatus = tskSUSPENDED_CHAR;
-                        break;
-
-                    case eDeleted:
-                        cStatus = tskDELETED_CHAR;
-                        break;
-
-                    case eInvalid: /* Fall through. */
-                    default:       /* Should not get here, but it is included
-                                    * to prevent static checking errors. */
-                        cStatus = ( char ) 0x00;
-                        break;
-                }
-
-                /* Write the task name to the string, padding with spaces so it
-                 * can be printed in tabular form more easily. */
-                pcWriteBuffer = prvWriteNameToBuffer( pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName );
-
-                /* Write the rest of the string. */
-                #if ( configTASKLIST_INCLUDE_COREID == 1 )
-                {
-                    const BaseType_t xCoreID = ( pxTaskStatusArray[ x ].xCoreID == tskNO_AFFINITY ) ? -1 : pxTaskStatusArray[ x ].xCoreID;
-                    sprintf( pcWriteBuffer, "\t%c\t%u\t%u\t%u\t%d\r\n", cStatus, ( unsigned int ) pxTaskStatusArray[ x ].uxCurrentPriority, ( unsigned int ) pxTaskStatusArray[ x ].usStackHighWaterMark, ( unsigned int ) pxTaskStatusArray[ x ].xTaskNumber, ( int ) xCoreID ); /*lint !e586 sprintf() allowed as this is compiled with many compilers and this is a utility function only - not part of the core kernel implementation. */
-                }
-                #else /* configTASKLIST_INCLUDE_COREID == 1 */
-                {
-                    sprintf( pcWriteBuffer, "\t%c\t%u\t%u\t%u\r\n", cStatus, ( unsigned int ) pxTaskStatusArray[ x ].uxCurrentPriority, ( unsigned int ) pxTaskStatusArray[ x ].usStackHighWaterMark, ( unsigned int ) pxTaskStatusArray[ x ].xTaskNumber ); /*lint !e586 sprintf() allowed as this is compiled with many compilers and this is a utility function only - not part of the core kernel implementation. */
-                }
-                #endif /* configTASKLIST_INCLUDE_COREID == 1 */
-                pcWriteBuffer += strlen( pcWriteBuffer ); /*lint !e9016 Pointer arithmetic ok on char pointers especially as in this case where it best denotes the intent of the code. */
-            }
-
-            /* Free the array again.  NOTE!  If configSUPPORT_DYNAMIC_ALLOCATION
-             * is 0 then vPortFree() will be #defined to nothing. */
-            vPortFree( pxTaskStatusArray );
-        }
-        else
-        {
-            mtCOVERAGE_TEST_MARKER();
-        }
-    }
-
-#endif /* ( ( configUSE_TRACE_FACILITY == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) ) */
-/*----------------------------------------------------------*/
-
-#if ( ( configGENERATE_RUN_TIME_STATS == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) && ( configUSE_TRACE_FACILITY == 1 ) )
-
-    void vTaskGetRunTimeStats( char * pcWriteBuffer )
-    {
-        TaskStatus_t * pxTaskStatusArray;
-        UBaseType_t uxArraySize, x;
-        configRUN_TIME_COUNTER_TYPE ulTotalTime, ulStatsAsPercentage;
-
-        /*
-         * PLEASE NOTE:
-         *
-         * This function is provided for convenience only, and is used by many
-         * of the demo applications.  Do not consider it to be part of the
-         * scheduler.
-         *
-         * vTaskGetRunTimeStats() calls uxTaskGetSystemState(), then formats part
-         * of the uxTaskGetSystemState() output into a human readable table that
-         * displays the amount of time each task has spent in the Running state
-         * in both absolute and percentage terms.
-         *
-         * vTaskGetRunTimeStats() has a dependency on the sprintf() C library
-         * function that might bloat the code size, use a lot of stack, and
-         * provide different results on different platforms.  An alternative,
-         * tiny, third party, and limited functionality implementation of
-         * sprintf() is provided in many of the FreeRTOS/Demo sub-directories in
-         * a file called printf-stdarg.c (note printf-stdarg.c does not provide
-         * a full snprintf() implementation!).
-         *
-         * It is recommended that production systems call uxTaskGetSystemState()
-         * directly to get access to raw stats data, rather than indirectly
-         * through a call to vTaskGetRunTimeStats().
-         */
-
-        /* Make sure the write buffer does not contain a string. */
-        *pcWriteBuffer = ( char ) 0x00;
-
-        /* Take a snapshot of the number of tasks in case it changes while this
-         * function is executing. */
-        uxArraySize = uxCurrentNumberOfTasks;
-
-        /* Allocate an array index for each task.  NOTE!  If
-         * configSUPPORT_DYNAMIC_ALLOCATION is set to 0 then pvPortMalloc() will
-         * equate to NULL. */
-        pxTaskStatusArray = pvPortMalloc( uxCurrentNumberOfTasks * sizeof( TaskStatus_t ) ); /*lint !e9079 All values returned by pvPortMalloc() have at least the alignment required by the MCU's stack and this allocation allocates a struct that has the alignment requirements of a pointer. */
-
-        if( pxTaskStatusArray != NULL )
-        {
-            /* Generate the (binary) data. */
-            uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, &ulTotalTime );
-
-            /* For percentage calculations. */
-            ulTotalTime /= 100UL;
-
-            /* Avoid divide by zero errors. */
-            if( ulTotalTime > 0UL )
-            {
-                /* Create a human readable table from the binary data. */
-                for( x = 0; x < uxArraySize; x++ )
-                {
-                    /* What percentage of the total run time has the task used?
-                     * This will always be rounded down to the nearest integer.
-                     * ulTotalRunTime has already been divided by 100. */
-                    ulStatsAsPercentage = pxTaskStatusArray[ x ].ulRunTimeCounter / ulTotalTime;
-
-                    /* Write the task name to the string, padding with
-                     * spaces so it can be printed in tabular form more
-                     * easily. */
-                    pcWriteBuffer = prvWriteNameToBuffer( pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName );
-
-                    if( ulStatsAsPercentage > 0UL )
-                    {
-                        #ifdef portLU_PRINTF_SPECIFIER_REQUIRED
-                        {
-                            sprintf( pcWriteBuffer, "\t%lu\t\t%lu%%\r\n", pxTaskStatusArray[ x ].ulRunTimeCounter, ulStatsAsPercentage );
-                        }
-                        #else
-                        {
-                            /* sizeof( int ) == sizeof( long ) so a smaller
-                             * printf() library can be used. */
-                            sprintf( pcWriteBuffer, "\t%u\t\t%u%%\r\n", ( unsigned int ) pxTaskStatusArray[ x ].ulRunTimeCounter, ( unsigned int ) ulStatsAsPercentage ); /*lint !e586 sprintf() allowed as this is compiled with many compilers and this is a utility function only - not part of the core kernel implementation. */
-                        }
-                        #endif
-                    }
-                    else
-                    {
-                        /* If the percentage is zero here then the task has
-                         * consumed less than 1% of the total run time. */
-                        #ifdef portLU_PRINTF_SPECIFIER_REQUIRED
-                        {
-                            sprintf( pcWriteBuffer, "\t%lu\t\t<1%%\r\n", pxTaskStatusArray[ x ].ulRunTimeCounter );
-                        }
-                        #else
-                        {
-                            /* sizeof( int ) == sizeof( long ) so a smaller
-                             * printf() library can be used. */
-                            sprintf( pcWriteBuffer, "\t%u\t\t<1%%\r\n", ( unsigned int ) pxTaskStatusArray[ x ].ulRunTimeCounter ); /*lint !e586 sprintf() allowed as this is compiled with many compilers and this is a utility function only - not part of the core kernel implementation. */
-                        }
-                        #endif
-                    }
-
-                    pcWriteBuffer += strlen( pcWriteBuffer ); /*lint !e9016 Pointer arithmetic ok on char pointers especially as in this case where it best denotes the intent of the code. */
-                }
-            }
-            else
-            {
-                mtCOVERAGE_TEST_MARKER();
-            }
-
-            /* Free the array again.  NOTE!  If configSUPPORT_DYNAMIC_ALLOCATION
-             * is 0 then vPortFree() will be #defined to nothing. */
-            vPortFree( pxTaskStatusArray );
-        }
-        else
-        {
-            mtCOVERAGE_TEST_MARKER();
-        }
-    }
-
-#endif /* ( ( configGENERATE_RUN_TIME_STATS == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) ) */
 /*-----------------------------------------------------------*/
 
 #if ( configUSE_TASK_NOTIFICATIONS == 1 )

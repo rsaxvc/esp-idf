@@ -71,34 +71,7 @@
 #include "utils/wait_for_event.h"
 /*-----------------------------------------------------------*/
 
-#define SIG_RESUME SIGUSR1
-
-typedef struct THREAD
-{
-    pthread_t pthread;
-    TaskFunction_t pxCode;
-    void *pvParams;
-    BaseType_t xDying;
-    struct event *ev;
-} Thread_t;
-
-/*
- * The additional per-thread data is stored at the beginning of the
- * task's stack.
- */
-static inline Thread_t *prvGetThreadFromTask(TaskHandle_t xTask)
-{
-    StackType_t *pxTopOfStack = *(StackType_t **)xTask;
-
-    return (Thread_t *)(pxTopOfStack + 1);
-}
-
-/*-----------------------------------------------------------*/
-
 static pthread_once_t hSigSetupThread = PTHREAD_ONCE_INIT;
-//static volatile BaseType_t uxCriticalNesting;
-static sigset_t xAllSignals;
-static sigset_t xSchedulerOriginalSignalMask;
 static pthread_t hMainThread = ( pthread_t )NULL;
 /*-----------------------------------------------------------*/
 
@@ -122,9 +95,7 @@ static void prvFatalError( const char *pcCall, int iErrno )
 /*
  * See header file for description.
  */
-pthread_t *pxPortInitialiseStack( StackType_t *pxTopOfStack,
-                                    StackType_t *pxEndOfStack,
-                                    TaskFunction_t pxCode,
+TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
                                     void *pvParameters )
 {
     Thread_t *thread;
@@ -135,15 +106,12 @@ pthread_t *pxPortInitialiseStack( StackType_t *pxTopOfStack,
     (void)pthread_once( &hSigSetupThread, prvSetupSignalsAndSchedulerPolicy );
 
     /*
-     * Store the additional thread data at the start of the stack.
+     * Store the additional thread data
      */
-    thread = (Thread_t *)(pxTopOfStack + 1) - 1;
-    pxTopOfStack = (StackType_t *)thread - 1;
-    ulStackSize = (pxTopOfStack + 1 - pxEndOfStack) * sizeof(*pxTopOfStack);
+    thread = calloc(sizeof(Thread_t), 1);
 
     thread->pxCode = pxCode;
     thread->pvParams = pvParameters;
-    thread->xDying = pdFALSE;
 
     pthread_attr_init( &xThreadAttributes );
     pthread_attr_setstack( &xThreadAttributes, pxEndOfStack, ulStackSize );
@@ -159,7 +127,7 @@ pthread_t *pxPortInitialiseStack( StackType_t *pxTopOfStack,
 
     //rsa vPortExitCritical();
 
-    return pxTopOfStack;
+    return thread->pthread;
 }
 /*-----------------------------------------------------------*/
 
@@ -192,9 +160,6 @@ BaseType_t xPortStartScheduler( void )
     /* Cancel the Timer task and free its resources */
     vPortCancelThread( xTimerGetTimerDaemonTaskHandle() );
 #endif /* configUSE_TIMERS */
-
-    /* Restore original signal mask. */
-    (void)pthread_sigmask( SIG_SETMASK, &xSchedulerOriginalSignalMask,  NULL );
 
     return 0;
 }
@@ -241,19 +206,6 @@ void vPortYield( void )
 {
     sched_yield();
 }
-/*-----------------------------------------------------------*/
-
-/*rsa void vPortDisableInterrupts( void )
-{
-    pthread_sigmask( SIG_BLOCK, &xAllSignals, NULL );
-}
-*/
-/*-----------------------------------------------------------*/
-/*rsa void vPortEnableInterrupts( void )
-{
-    pthread_sigmask( SIG_UNBLOCK, &xAllSignals, NULL );
-}*/
-/*-----------------------------------------------------------*/
 
 BaseType_t xPortSetInterruptMask( void )
 {
@@ -337,14 +289,11 @@ static void vPortSystemTickHandler( int sig )
 }
 /*-----------------------------------------------------------*/
 
-void vPortThreadDying( void *pxTaskToDelete, volatile BaseType_t *pxPendYield )
+void vPortThreadDying( void * pxTaskToDelete, volatile BaseType_t *pxPendYield )
 {
-    Thread_t *pxThread = prvGetThreadFromTask( pxTaskToDelete );
-
-    pxThread->xDying = pdTRUE;
 }
 
-void vPortCancelThread( TaskHandle_t pxTaskToDelete )
+void vPortCancelThread( void * pxTaskToDelete )
 {
     #if ( CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK )
         /* Call the user defined task pre-deletion hook before canceling the thread */
@@ -352,11 +301,8 @@ void vPortCancelThread( TaskHandle_t pxTaskToDelete )
         vTaskPreDeletionHook( pxTaskToDelete );
     #endif /* CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK */
 
-    /*
-     * The thread has already been suspended so it can be safely cancelled.
-     */
     pthread_cancel( pxTaskToDelete );
-    pthread_join( pxTaskToDelete );
+    pthread_join( pxTaskToDelete, NULL );
 }
 /*-----------------------------------------------------------*/
 
@@ -380,42 +326,14 @@ static void *prvWaitForStart( void * pvParams )
 
 static void prvSetupSignalsAndSchedulerPolicy( void )
 {
-    struct sigaction sigresume, sigtick;
+    struct sigaction sigtick;
     int iRet;
 
     hMainThread = pthread_self();
 
-    /* Initialise common signal masks. */
-    sigfillset( &xAllSignals );
-    /* Don't block SIGINT so this can be used to break into GDB while
-     * in a critical section. */
-    sigdelset( &xAllSignals, SIGINT );
-
-    /*
-     * Block all signals in this thread so all new threads
-     * inherits this mask.
-     *
-     * When a thread is resumed for the first time, all signals
-     * will be unblocked.
-     */
-    (void)pthread_sigmask( SIG_SETMASK, &xAllSignals,
-                           &xSchedulerOriginalSignalMask );
-
-    /* SIG_RESUME is only used with sigwait() so doesn't need a
-       handler. */
-    sigresume.sa_flags = 0;
-    sigresume.sa_handler = SIG_IGN;
-    sigfillset( &sigresume.sa_mask );
-
     sigtick.sa_flags = 0;
     sigtick.sa_handler = vPortSystemTickHandler;
     sigfillset( &sigtick.sa_mask );
-
-    iRet = sigaction( SIG_RESUME, &sigresume, NULL );
-    if ( iRet )
-    {
-        prvFatalError( "sigaction", errno );
-    }
 
     iRet = sigaction( SIGALRM, &sigtick, NULL );
     if ( iRet )

@@ -66,6 +66,20 @@ extern "C" {
 #define portPOINTER_SIZE_TYPE intptr_t
 typedef pthread_mutex_t portMUX_TYPE;
 
+/*
+ * Task control block.  A task control block (TCB) is allocated for each task,
+ * and stores task state information, including a pointer to the task's context
+ * (the task's run time environment, including register values)
+ */
+typedef struct tskTaskControlBlock
+{
+    pthread_t tid;
+#if configNUM_THREAD_LOCAL_STORAGE_POINTERS != 0
+    void * pvThreadLocalStoragePointers[configNUM_THREAD_LOCAL_STORAGE_POINTERS];
+#endif
+} tskTCB;
+typedef tskTCB TCB_t;
+
 typedef pthread_t StackType_t;
 typedef portBASE_TYPE BaseType_t;
 typedef unsigned portBASE_TYPE UBaseType_t;
@@ -118,8 +132,8 @@ void vPortExitCritical(portMUX_TYPE *mux);
 
 /*-----------------------------------------------------------*/
 
-extern void vPortThreadDying( pthread_t pxTaskToDelete, volatile BaseType_t *pxPendYield );
-extern void vPortCancelThread( pthread_t pxTaskToDelete );
+extern void vPortThreadDying( void * pxTaskToDelete, volatile BaseType_t *pxPendYield );
+extern void vPortCancelThread( void * pxTaskToDelete );
 #define portPRE_TASK_DELETE_HOOK( pvTaskToDelete, pxPendYield ) vPortThreadDying( ( pvTaskToDelete ), ( pxPendYield ) )
 #define portCLEAN_UP_TCB( pxTCB )   vPortCancelThread( pxTCB )
 /*-----------------------------------------------------------*/

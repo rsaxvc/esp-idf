@@ -151,17 +151,6 @@ static void prvInitialiseNewQueue( const UBaseType_t uxQueueLength,
     static void prvInitialiseMutex( Queue_t * pxNewQueue ) PRIVILEGED_FUNCTION;
 #endif
 
-#if ( configUSE_MUTEXES == 1 )
-
-/*
- * If a task waiting for a mutex causes the mutex holder to inherit a
- * priority, but the waiting task times out, then the holder should
- * disinherit the priority - but only down to the highest priority of any
- * other tasks that are waiting for the same mutex.  This function returns
- * that priority.
- */
-    static UBaseType_t prvGetDisinheritPriorityAfterTimeout( const Queue_t * const pxQueue ) PRIVILEGED_FUNCTION;
-#endif
 /*-----------------------------------------------------------*/
 
 BaseType_t xQueueGenericReset( QueueHandle_t xQueue,
@@ -713,7 +702,6 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                               const BaseType_t xCopyPosition )
 {
     BaseType_t xEntryTimeSet = pdFALSE;
-    TimeOut_t xTimeOut;
     Queue_t * const pxQueue = xQueue;
 
     configASSERT( pxQueue );
@@ -764,7 +752,6 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                 {
                     /* The queue was full and a block time was specified so
                      * configure the timeout structure. */
-                    vTaskInternalSetTimeOutState( &xTimeOut );
                     xEntryTimeSet = pdTRUE;
                 }
                 else
@@ -773,72 +760,8 @@ BaseType_t xQueueGenericSend( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
             }
-
-            /* If queue locks ARE NOT being used:
-             * - At this point, the queue is full and entry time has been set
-             * - We simply check for a time out, block if not timed out, or
-             *   return an error if we have timed out. */
-            #if ( queueUSE_LOCKS == 0 )
-            {
-                /* Update the timeout state to see if it has expired yet. */
-                if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
-                {
-                    /* Not timed out yet. Block the current task. */
-                    portYIELD_WITHIN_API();
-                }
-                else
-                {
-                    /* We have timed out. Return an error. */
-                    taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
-                    traceQUEUE_SEND_FAILED( pxQueue );
-                    return errQUEUE_FULL;
-                }
-            }
-            #endif /* queueUSE_LOCKS == 0 */
         }
         taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
-
-        /* If queue locks ARE being used:
-         * - At this point, the queue is full and entry time has been set
-         * - We follow the original procedure of locking the queue before
-         *   attempting to block. */
-        #if ( queueUSE_LOCKS == 1 )
-        {
-            /* Interrupts and other tasks can send to and receive from the queue
-             * now the critical section has been exited. */
-
-            prvLockQueue( pxQueue );
-
-            /* Update the timeout state to see if it has expired yet. */
-            if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
-            {
-                if( prvIsQueueFull( pxQueue ) != pdFALSE )
-                {
-                    traceBLOCKING_ON_QUEUE_SEND( pxQueue );
-
-                    /* Unlocking the queue means queue events can effect the
-                     * event list. It is possible that interrupts occurring now
-                     * remove this task from the event list again - but as the
-                     * scheduler is suspended the task will go onto the pending
-                     * ready list instead of the actual ready list. */
-                    prvUnlockQueue( pxQueue );
-                }
-                else
-                {
-                    /* Try again. */
-                    prvUnlockQueue( pxQueue );
-                }
-            }
-            else
-            {
-                /* The timeout has expired. */
-                prvUnlockQueue( pxQueue );
-
-                traceQUEUE_SEND_FAILED( pxQueue );
-                return errQUEUE_FULL;
-            }
-        }
-        #endif /* queueUSE_LOCKS == 1 */
     } /*lint -restore */
 }
 /*-----------------------------------------------------------*/
@@ -1017,7 +940,6 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                           TickType_t xTicksToWait )
 {
     BaseType_t xEntryTimeSet = pdFALSE;
-    TimeOut_t xTimeOut;
     Queue_t * const pxQueue = xQueue;
 
     /* Check the pointer is not NULL. */
@@ -1069,7 +991,6 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                 {
                     /* The queue was empty and a block time was specified so
                      * configure the timeout structure. */
-                    vTaskInternalSetTimeOutState( &xTimeOut );
                     xEntryTimeSet = pdTRUE;
                 }
                 else
@@ -1078,29 +999,6 @@ BaseType_t xQueueReceive( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
             }
-
-            /* If queue locks ARE NOT being used:
-             * - At this point, the queue is empty and entry time has been set
-             * - We simply check for a time out, block if not timed out, or
-             *   return an error if we have timed out. */
-            #if ( queueUSE_LOCKS == 0 )
-            {
-                /* Update the timeout state to see if it has expired yet. */
-                if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
-                {
-                    /* Not timed out yet. Block the current task. */
-                    traceBLOCKING_ON_QUEUE_RECEIVE( pxQueue );
-                    portYIELD_WITHIN_API();
-                }
-                else
-                {
-                    /* We have timed out. Return an error. */
-                    taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
-                    traceQUEUE_RECEIVE_FAILED( pxQueue );
-                    return errQUEUE_EMPTY;
-                }
-            }
-            #endif /* queueUSE_LOCKS == 0 */
         }
         taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
     } /*lint -restore */
@@ -1111,12 +1009,7 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                                 TickType_t xTicksToWait )
 {
     BaseType_t xEntryTimeSet = pdFALSE;
-    TimeOut_t xTimeOut;
     Queue_t * const pxQueue = xQueue;
-
-    #if ( configUSE_MUTEXES == 1 )
-        BaseType_t xInheritanceOccurred = pdFALSE;
-    #endif
 
     /* Check the queue pointer is not NULL. */
     configASSERT( ( pxQueue ) );
@@ -1167,7 +1060,6 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                 {
                     /* The semaphore count was 0 and a block time was specified
                      * so configure the timeout structure ready to block. */
-                    vTaskInternalSetTimeOutState( &xTimeOut );
                     xEntryTimeSet = pdTRUE;
                 }
                 else
@@ -1176,54 +1068,6 @@ BaseType_t xQueueSemaphoreTake( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
             }
-
-            /* If queue locks ARE NOT being used:
-             * - At this point, the semaphore/mutex is empty/held and entry time
-             *   has been set.
-             * - We simply check for a time out, inherit priority and block if
-             *   not timed out, or return an error if we have timed out. */
-            #if ( queueUSE_LOCKS == 0 )
-            {
-                /* Update the timeout state to see if it has expired yet. */
-                if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
-                {
-                    /* Not timed out yet. If this is a mutex, make the holder
-                     * inherit our priority, then block the current task. */
-                    traceBLOCKING_ON_QUEUE_RECEIVE( pxQueue );
-                    #if ( configUSE_MUTEXES == 1 )
-                    {
-                        if( pxQueue->uxQueueType == queueQUEUE_IS_MUTEX )
-                        {
-                            xInheritanceOccurred = xTaskPriorityInherit( pxQueue->u.xSemaphore.xMutexHolder );
-                        }
-                        else
-                        {
-                            mtCOVERAGE_TEST_MARKER();
-                        }
-                    }
-                    #endif /* if ( configUSE_MUTEXES == 1 ) */
-                    portYIELD_WITHIN_API();
-                }
-                else
-                {
-                    /* We have timed out. If this is a mutex, make the holder
-                     * disinherit our priority, then return an error. */
-                    #if ( configUSE_MUTEXES == 1 )
-                    {
-                        if( xInheritanceOccurred != pdFALSE )
-                        {
-                            UBaseType_t uxHighestWaitingPriority;
-                            uxHighestWaitingPriority = prvGetDisinheritPriorityAfterTimeout( pxQueue );
-                            vTaskPriorityDisinheritAfterTimeout( pxQueue->u.xSemaphore.xMutexHolder, uxHighestWaitingPriority );
-                        }
-                    }
-                    #endif /* configUSE_MUTEXES */
-                    taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
-                    traceQUEUE_RECEIVE_FAILED( pxQueue );
-                    return errQUEUE_EMPTY;
-                }
-            }
-            #endif /* queueUSE_LOCKS == 0 */
         }
         taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
     } /*lint -restore */
@@ -1235,7 +1079,6 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                        TickType_t xTicksToWait )
 {
     BaseType_t xEntryTimeSet = pdFALSE;
-    TimeOut_t xTimeOut;
     int8_t * pcOriginalReadPosition;
     Queue_t * const pxQueue = xQueue;
 
@@ -1298,7 +1141,6 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                     /* The queue was empty and a block time was specified so
                      * configure the timeout structure ready to enter the blocked
                      * state. */
-                    vTaskInternalSetTimeOutState( &xTimeOut );
                     xEntryTimeSet = pdTRUE;
                 }
                 else
@@ -1307,134 +1149,10 @@ BaseType_t xQueuePeek( QueueHandle_t xQueue,
                     mtCOVERAGE_TEST_MARKER();
                 }
             }
-
-            /* If queue locks ARE NOT being used:
-             * - At this point, the queue is empty and entry time has been set
-             * - We simply check for a time out, block if not timed out, or
-             *   return an error if we have timed out. */
-            #if ( queueUSE_LOCKS == 0 )
-            {
-                /* Update the timeout state to see if it has expired yet. */
-                if( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE )
-                {
-                    /* Not timed out yet. Block the current task. */
-                    traceBLOCKING_ON_QUEUE_PEEK( pxQueue );
-                    portYIELD_WITHIN_API();
-                }
-                else
-                {
-                    /* We have timed out. Return an error. */
-                    taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
-                    traceQUEUE_PEEK_FAILED( pxQueue );
-                    return errQUEUE_EMPTY;
-                }
-            }
-            #endif /* queueUSE_LOCKS == 0 */
         }
         taskEXIT_CRITICAL( &( pxQueue->xQueueLock ) );
     } /*lint -restore */
 }
-/*-----------------------------------------------------------*/
-#if 0 //rsa
-BaseType_t xQueueReceiveFromISR( QueueHandle_t xQueue,
-                                 void * const pvBuffer,
-                                 BaseType_t * const pxHigherPriorityTaskWoken )
-{
-    BaseType_t xReturn;
-    UBaseType_t uxSavedInterruptStatus;
-    Queue_t * const pxQueue = xQueue;
-
-    configASSERT( pxQueue );
-    configASSERT( !( ( pvBuffer == NULL ) && ( pxQueue->uxItemSize != ( UBaseType_t ) 0U ) ) );
-
-    /* RTOS ports that support interrupt nesting have the concept of a maximum
-     * system call (or maximum API call) interrupt priority.  Interrupts that are
-     * above the maximum system call priority are kept permanently enabled, even
-     * when the RTOS kernel is in a critical section, but cannot make any calls to
-     * FreeRTOS API functions.  If configASSERT() is defined in FreeRTOSConfig.h
-     * then portASSERT_IF_INTERRUPT_PRIORITY_INVALID() will result in an assertion
-     * failure if a FreeRTOS API function is called from an interrupt that has been
-     * assigned a priority above the configured maximum system call priority.
-     * Only FreeRTOS functions that end in FromISR can be called from interrupts
-     * that have been assigned a priority at or (logically) below the maximum
-     * system call interrupt priority.  FreeRTOS maintains a separate interrupt
-     * safe API to ensure interrupt entry is as fast and as simple as possible.
-     * More information (albeit Cortex-M specific) is provided on the following
-     * link: https://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html */
-    portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
-
-    prvENTER_CRITICAL_OR_MASK_ISR( &( pxQueue->xQueueLock ), uxSavedInterruptStatus );
-    {
-        const UBaseType_t uxMessagesWaiting = pxQueue->uxMessagesWaiting;
-
-        /* Cannot block in an ISR, so check there is data available. */
-        if( uxMessagesWaiting > ( UBaseType_t ) 0 )
-        {
-            traceQUEUE_RECEIVE_FROM_ISR( pxQueue );
-
-            prvCopyDataFromQueue( pxQueue, pvBuffer );
-            pxQueue->uxMessagesWaiting = uxMessagesWaiting - ( UBaseType_t ) 1;
-
-            /* If the queue is locked the event list will not be modified.
-             * Instead update the lock count so the task that unlocks the queue
-             * will know that an ISR has removed data while the queue was
-             * locked. */
-
-            xReturn = pdPASS;
-        }
-        else
-        {
-            xReturn = pdFAIL;
-            traceQUEUE_RECEIVE_FROM_ISR_FAILED( pxQueue );
-        }
-    }
-    prvEXIT_CRITICAL_OR_UNMASK_ISR( &( pxQueue->xQueueLock ), uxSavedInterruptStatus );
-
-    return xReturn;
-}
-#endif
-/*-----------------------------------------------------------*/
-
-#if 0 //rsa BaseType_t xQueuePeekFromISR( QueueHandle_t xQueue,
-                              void * const pvBuffer )
-{
-    BaseType_t xReturn;
-    UBaseType_t uxSavedInterruptStatus;
-    int8_t * pcOriginalReadPosition;
-    Queue_t * const pxQueue = xQueue;
-
-    configASSERT( pxQueue );
-    configASSERT( !( ( pvBuffer == NULL ) && ( pxQueue->uxItemSize != ( UBaseType_t ) 0U ) ) );
-    configASSERT( pxQueue->uxItemSize != 0 );
-
-    portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
-
-    prvENTER_CRITICAL_OR_MASK_ISR( &( pxQueue->xQueueLock ), uxSavedInterruptStatus );
-    {
-        /* Cannot block in an ISR, so check there is data available. */
-        if( pxQueue->uxMessagesWaiting > ( UBaseType_t ) 0 )
-        {
-            traceQUEUE_PEEK_FROM_ISR( pxQueue );
-
-            /* Remember the read position so it can be reset as nothing is
-             * actually being removed from the queue. */
-            pcOriginalReadPosition = pxQueue->u.xQueue.pcReadFrom;
-            prvCopyDataFromQueue( pxQueue, pvBuffer );
-            pxQueue->u.xQueue.pcReadFrom = pcOriginalReadPosition;
-
-            xReturn = pdPASS;
-        }
-        else
-        {
-            xReturn = pdFAIL;
-            traceQUEUE_PEEK_FROM_ISR_FAILED( pxQueue );
-        }
-    }
-    prvEXIT_CRITICAL_OR_UNMASK_ISR( &( pxQueue->xQueueLock ), uxSavedInterruptStatus );
-
-    return xReturn;
-}
-#endif
 /*-----------------------------------------------------------*/
 
 UBaseType_t uxQueueMessagesWaiting( const QueueHandle_t xQueue )
@@ -1555,26 +1273,6 @@ void vQueueDelete( QueueHandle_t xQueue )
 #endif /* configUSE_TRACE_FACILITY */
 /*-----------------------------------------------------------*/
 
-#if ( configUSE_MUTEXES == 1 )
-
-    static UBaseType_t prvGetDisinheritPriorityAfterTimeout( const Queue_t * const pxQueue )
-    {
-        UBaseType_t uxHighestPriorityOfWaitingTasks;
-
-        /* If a task waiting for a mutex causes the mutex holder to inherit a
-         * priority, but the waiting task times out, then the holder should
-         * disinherit the priority - but only down to the highest priority of any
-         * other tasks that are waiting for the same mutex.  For this purpose,
-         * return the priority of the highest priority task that is waiting for the
-         * mutex. */
-         uxHighestPriorityOfWaitingTasks = tskIDLE_PRIORITY;
-
-        return uxHighestPriorityOfWaitingTasks;
-    }
-
-#endif /* configUSE_MUTEXES */
-/*-----------------------------------------------------------*/
-
 static BaseType_t prvCopyDataToQueue( Queue_t * const pxQueue,
                                       const void * pvItemToQueue,
                                       const BaseType_t xPosition )
@@ -1592,8 +1290,6 @@ static BaseType_t prvCopyDataToQueue( Queue_t * const pxQueue,
         {
             if( pxQueue->uxQueueType == queueQUEUE_IS_MUTEX )
             {
-                /* The mutex is no longer being held. */
-                xReturn = xTaskPriorityDisinherit( pxQueue->u.xSemaphore.xMutexHolder );
 #ifndef PTHREAD_NULL
 #define PTHREAD_NULL 0
 #endif

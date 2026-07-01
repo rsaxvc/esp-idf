@@ -1341,7 +1341,7 @@ typedef struct QueuePointers
 
 typedef struct SemaphoreData
 {
-    pthread_t xMutexHolder; /**< The handle of the task that holds the mutex. */
+    struct tskTaskControlBlock * xMutexHolder; /**< The handle of the task that holds the mutex. */
     UBaseType_t uxRecursiveCallCount; /**< Maintains a count of the number of times a recursive mutex has been recursively 'taken' when the structure is used as a mutex. */
 } SemaphoreData_t;
 

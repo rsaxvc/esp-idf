@@ -89,7 +89,7 @@
  *
  * \ingroup Tasks
  */
-typedef pthread_t TaskHandle_t;
+typedef struct tskTaskControlBlock * TaskHandle_t;
 
 /**
  * Defines the prototype to which the application task hook function must
@@ -366,39 +366,13 @@ typedef enum
  * \ingroup Tasks
  */
 #if ( configSUPPORT_DYNAMIC_ALLOCATION == 1 )
-    static inline __attribute__( ( always_inline ) )
     BaseType_t xTaskCreate( TaskFunction_t pxTaskCode,
-                            const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
-                            const configSTACK_DEPTH_TYPE usStackDepth,
+                            const char * const pcName,
+                            const configSTACK_DEPTH_TYPE uxStackDepth,
                             void * const pvParameters,
                             UBaseType_t uxPriority,
-                            TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION
-    {
-        /*
-         * The idf_additions.h has not been included here yet due to inclusion
-         * order. Thus we manually declare the function here.
-         */
-        extern BaseType_t xTaskCreatePinnedToCore( TaskFunction_t pxTaskCode,
-                                                   const char * const pcName,
-                                                   const configSTACK_DEPTH_TYPE usStackDepth,
-                                                   void * const pvParameters,
-                                                   UBaseType_t uxPriority,
-                                                   TaskHandle_t * const pvCreatedTask,
-                                                   const BaseType_t xCoreID );
-
-        /*
-         * Call the "PinnedToCore" version with tskNO_AFFINITY to create
-         * an unpinned task.
-         */
-        return xTaskCreatePinnedToCore( pxTaskCode,
-                                        pcName,
-                                        usStackDepth,
-                                        pvParameters,
-                                        uxPriority,
-                                        pxCreatedTask,
-                                        tskNO_AFFINITY );
-    }
-#endif /* configSUPPORT_DYNAMIC_ALLOCATION == 1 */
+                            TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION;
+#endif
 
 /**
  *
@@ -501,41 +475,13 @@ typedef enum
  * \ingroup Tasks
  */
 #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
-    static inline __attribute__( ( always_inline ) )
     TaskHandle_t xTaskCreateStatic( TaskFunction_t pxTaskCode,
-                                    const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
-                                    const uint32_t ulStackDepth,
+                                    const char * const pcName,
+                                    const configSTACK_DEPTH_TYPE uxStackDepth,
                                     void * const pvParameters,
                                     UBaseType_t uxPriority,
                                     StackType_t * const puxStackBuffer,
-                                    StaticTask_t * const pxTaskBuffer ) PRIVILEGED_FUNCTION
-    {
-        /*
-         * The idf_additions.h has not been included here yet due to inclusion
-         * order. Thus we manually declare the function here.
-         */
-        extern TaskHandle_t xTaskCreateStaticPinnedToCore( TaskFunction_t pxTaskCode,
-                                                           const char * const pcName,
-                                                           const uint32_t ulStackDepth,
-                                                           void * const pvParameters,
-                                                           UBaseType_t uxPriority,
-                                                           StackType_t * const pxStackBuffer,
-                                                           StaticTask_t * const pxTaskBuffer,
-                                                           const BaseType_t xCoreID );
-
-        /*
-         * Call the "PinnedToCore" version with tskNO_AFFINITY to create
-         * an unpinned task.
-         */
-        return xTaskCreateStaticPinnedToCore( pxTaskCode,
-                                              pcName,
-                                              ulStackDepth,
-                                              pvParameters,
-                                              uxPriority,
-                                              puxStackBuffer,
-                                              pxTaskBuffer,
-                                              tskNO_AFFINITY );
-    }
+                                    StaticTask_t * const pxTaskBuffer ) PRIVILEGED_FUNCTION;
 #endif /* configSUPPORT_STATIC_ALLOCATION */
 
 /** @cond !DOC_EXCLUDE_HEADER_SECTION */
@@ -1143,22 +1089,6 @@ char * pcTaskGetName( TaskHandle_t xTaskToQuery ) PRIVILEGED_FUNCTION; /*lint !e
  */
     void vApplicationTickHook( void ); /*lint !e526 Symbol not defined as it is an application callback. */
 
-#endif
-
-#if ( configSUPPORT_STATIC_ALLOCATION == 1 )
-
-/**
- *
- * This function is used to provide a statically allocated block of memory to FreeRTOS to hold the Idle Task TCB.  This function is required when
- * configSUPPORT_STATIC_ALLOCATION is set.  For more information see this URI: https://www.FreeRTOS.org/a00110.html#configSUPPORT_STATIC_ALLOCATION
- *
- * @param ppxIdleTaskTCBBuffer A handle to a statically allocated TCB buffer
- * @param ppxIdleTaskStackBuffer A handle to a statically allocated Stack buffer for the idle task
- * @param pulIdleTaskStackSize A pointer to the number of elements that will fit in the allocated stack buffer
- */
-    void vApplicationGetIdleTaskMemory( StaticTask_t ** ppxIdleTaskTCBBuffer,
-                                        StackType_t ** ppxIdleTaskStackBuffer,
-                                        uint32_t * pulIdleTaskStackSize ); /*lint !e526 Symbol not defined as it is an application callback. */
 #endif
 
 /**

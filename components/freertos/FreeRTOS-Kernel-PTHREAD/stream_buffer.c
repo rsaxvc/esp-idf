@@ -98,45 +98,6 @@
     #define prvRECEIVE_COMPLETED( pxStreamBuffer )    sbRECEIVE_COMPLETED( ( pxStreamBuffer ) )
 #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
 
-#ifndef sbRECEIVE_COMPLETED_FROM_ISR
-    #define sbRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer,                            \
-                                          pxHigherPriorityTaskWoken )                \
-    {                                                                                \
-        UBaseType_t uxSavedInterruptStatus;                                          \
-                                                                                     \
-        uxSavedInterruptStatus = ( UBaseType_t ) portSET_INTERRUPT_MASK_FROM_ISR();  \
-        {                                                                            \
-            if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )                     \
-            {                                                                        \
-                ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToSend, \
-                                             ( uint32_t ) 0,                         \
-                                             eNoAction,                              \
-                                             ( pxHigherPriorityTaskWoken ) );        \
-                ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                       \
-            }                                                                        \
-        }                                                                            \
-        portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );                 \
-    }
-#endif /* sbRECEIVE_COMPLETED_FROM_ISR */
-
-#if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
-    #define prvRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer,                                                               \
-                                           pxHigherPriorityTaskWoken )                                                   \
-    {                                                                                                                    \
-        if( ( pxStreamBuffer )->pxReceiveCompletedCallback != NULL )                                                     \
-        {                                                                                                                \
-            ( pxStreamBuffer )->pxReceiveCompletedCallback( ( pxStreamBuffer ), pdTRUE, ( pxHigherPriorityTaskWoken ) ); \
-        }                                                                                                                \
-        else                                                                                                             \
-        {                                                                                                                \
-            sbRECEIVE_COMPLETED_FROM_ISR( ( pxStreamBuffer ), ( pxHigherPriorityTaskWoken ) );                           \
-        }                                                                                                                \
-    }
-#else /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
-    #define prvRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken ) \
-    sbRECEIVE_COMPLETED_FROM_ISR( ( pxStreamBuffer ), ( pxHigherPriorityTaskWoken ) )
-#endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
-
 /* If the user has not provided an application specific Tx notification macro,
  * or #defined the notification macro away, then provide a default
  * implementation that uses task notifications.
@@ -174,27 +135,6 @@
 #else /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
     #define prvSEND_COMPLETED( pxStreamBuffer )    sbSEND_COMPLETED( ( pxStreamBuffer ) )
 #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
-
-
-#if !defined(sbSEND_COMPLETE_FROM_ISR) && 0
-    #define sbSEND_COMPLETE_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken )       \
-    {                                                                                   \
-        UBaseType_t uxSavedInterruptStatus;                                             \
-                                                                                        \
-        uxSavedInterruptStatus = ( UBaseType_t ) portSET_INTERRUPT_MASK_FROM_ISR();     \
-        {                                                                               \
-            if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )                     \
-            {                                                                           \
-                ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive, \
-                                             ( uint32_t ) 0,                            \
-                                             eNoAction,                                 \
-                                             ( pxHigherPriorityTaskWoken ) );           \
-                ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                       \
-            }                                                                           \
-        }                                                                               \
-        portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );                    \
-    }
-#endif /* sbSEND_COMPLETE_FROM_ISR */
 
 
 #if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
@@ -697,7 +637,6 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
     StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
     size_t xReturn, xSpace = 0;
     size_t xRequiredSpace = xDataLengthBytes;
-    TimeOut_t xTimeOut;
     size_t xMaxReportedSpace = 0;
 
     configASSERT( pvTxData );
@@ -748,8 +687,6 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
 
     if( xTicksToWait != ( TickType_t ) 0 )
     {
-        vTaskSetTimeOutState( &xTimeOut );
-
         do
         {
             /* Wait until the required number of bytes are free in the message
@@ -776,7 +713,6 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
             pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
 
             traceBLOCKING_ON_STREAM_BUFFER_SEND( xStreamBuffer );
-            ( void ) xTaskNotifyWait( ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
             /* In SMP mode, the task may have been woken and scheduled on
              * another core. Hence, we must clear the xTaskWaitingToSend
              * handle in a critical section. */
@@ -785,7 +721,7 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
                 pxStreamBuffer->xTaskWaitingToSend = NULL;
             }
             pthread_mutex_unlock( &( pxStreamBuffer->mutex ) );
-        } while( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE );
+        } while( pdFALSE );
     }
     else
     {
@@ -825,59 +761,6 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
 
     return xReturn;
 }
-/*-----------------------------------------------------------*/
-
-#if 0 //rsa
-size_t xStreamBufferSendFromISR( StreamBufferHandle_t xStreamBuffer,
-                                 const void * pvTxData,
-                                 size_t xDataLengthBytes,
-                                 BaseType_t * const pxHigherPriorityTaskWoken )
-{
-    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
-    size_t xReturn, xSpace;
-    size_t xRequiredSpace = xDataLengthBytes;
-
-    configASSERT( pvTxData );
-    configASSERT( pxStreamBuffer );
-
-    /* This send function is used to write to both message buffers and stream
-     * buffers.  If this is a message buffer then the space needed must be
-     * increased by the amount of bytes needed to store the length of the
-     * message. */
-    if( ( pxStreamBuffer->ucFlags & sbFLAGS_IS_MESSAGE_BUFFER ) != ( uint8_t ) 0 )
-    {
-        xRequiredSpace += sbBYTES_TO_STORE_MESSAGE_LENGTH;
-    }
-    else
-    {
-        mtCOVERAGE_TEST_MARKER();
-    }
-
-    xSpace = xStreamBufferSpacesAvailable( pxStreamBuffer );
-    xReturn = prvWriteMessageToBuffer( pxStreamBuffer, pvTxData, xDataLengthBytes, xSpace, xRequiredSpace );
-
-    if( xReturn > ( size_t ) 0 )
-    {
-        /* Was a task waiting for the data? */
-        if( prvBytesInBuffer( pxStreamBuffer ) >= pxStreamBuffer->xTriggerLevelBytes )
-        {
-            prvSEND_COMPLETE_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken );
-        }
-        else
-        {
-            mtCOVERAGE_TEST_MARKER();
-        }
-    }
-    else
-    {
-        mtCOVERAGE_TEST_MARKER();
-    }
-
-    traceSTREAM_BUFFER_SEND_FROM_ISR( xStreamBuffer, xReturn );
-
-    return xReturn;
-}
-#endif
 /*-----------------------------------------------------------*/
 
 static size_t prvWriteMessageToBuffer( StreamBuffer_t * const pxStreamBuffer,
@@ -1081,64 +964,6 @@ size_t xStreamBufferNextMessageLengthBytes( StreamBufferHandle_t xStreamBuffer )
     return xReturn;
 }
 /*-----------------------------------------------------------*/
-#if 0 //rsa
-size_t xStreamBufferReceiveFromISR( StreamBufferHandle_t xStreamBuffer,
-                                    void * pvRxData,
-                                    size_t xBufferLengthBytes,
-                                    BaseType_t * const pxHigherPriorityTaskWoken )
-{
-    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
-    size_t xReceivedLength = 0, xBytesAvailable, xBytesToStoreMessageLength;
-
-    configASSERT( pvRxData );
-    configASSERT( pxStreamBuffer );
-
-    /* This receive function is used by both message buffers, which store
-     * discrete messages, and stream buffers, which store a continuous stream of
-     * bytes.  Discrete messages include an additional
-     * sbBYTES_TO_STORE_MESSAGE_LENGTH bytes that hold the length of the
-     * message. */
-    if( ( pxStreamBuffer->ucFlags & sbFLAGS_IS_MESSAGE_BUFFER ) != ( uint8_t ) 0 )
-    {
-        xBytesToStoreMessageLength = sbBYTES_TO_STORE_MESSAGE_LENGTH;
-    }
-    else
-    {
-        xBytesToStoreMessageLength = 0;
-    }
-
-    xBytesAvailable = prvBytesInBuffer( pxStreamBuffer );
-
-    /* Whether receiving a discrete message (where xBytesToStoreMessageLength
-     * holds the number of bytes used to store the message length) or a stream of
-     * bytes (where xBytesToStoreMessageLength is zero), the number of bytes
-     * available must be greater than xBytesToStoreMessageLength to be able to
-     * read bytes from the buffer. */
-    if( xBytesAvailable > xBytesToStoreMessageLength )
-    {
-        xReceivedLength = prvReadMessageFromBuffer( pxStreamBuffer, pvRxData, xBufferLengthBytes, xBytesAvailable );
-
-        /* Was a task waiting for space in the buffer? */
-        if( xReceivedLength != ( size_t ) 0 )
-        {
-            prvRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken );
-        }
-        else
-        {
-            mtCOVERAGE_TEST_MARKER();
-        }
-    }
-    else
-    {
-        mtCOVERAGE_TEST_MARKER();
-    }
-
-    traceSTREAM_BUFFER_RECEIVE_FROM_ISR( xStreamBuffer, xReceivedLength );
-
-    return xReceivedLength;
-}
-#endif
-/*-----------------------------------------------------------*/
 
 static size_t prvReadMessageFromBuffer( StreamBuffer_t * pxStreamBuffer,
                                         void * pvRxData,
@@ -1249,68 +1074,6 @@ BaseType_t xStreamBufferIsFull( StreamBufferHandle_t xStreamBuffer )
 
     return xReturn;
 }
-/*-----------------------------------------------------------*/
-/* rsa BaseType_t xStreamBufferSendCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
-                                              BaseType_t * pxHigherPriorityTaskWoken )
-{
-    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
-    BaseType_t xReturn;
-    UBaseType_t uxSavedInterruptStatus;
-
-    configASSERT( pxStreamBuffer );
-
-    uxSavedInterruptStatus = ( UBaseType_t ) portSET_INTERRUPT_MASK_FROM_ISR();
-    {
-        if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )
-        {
-            ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive,
-                                         ( uint32_t ) 0,
-                                         eNoAction,
-                                         pxHigherPriorityTaskWoken );
-            ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;
-            xReturn = pdTRUE;
-        }
-        else
-        {
-            xReturn = pdFALSE;
-        }
-    }
-    portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
-
-    return xReturn;
-}
-*/
-/*-----------------------------------------------------------*/
-
-/*rsa BaseType_t xStreamBufferReceiveCompletedFromISR( StreamBufferHandle_t xStreamBuffer,
-                                                 BaseType_t * pxHigherPriorityTaskWoken )
-{
-    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
-    BaseType_t xReturn;
-    UBaseType_t uxSavedInterruptStatus;
-
-    configASSERT( pxStreamBuffer );
-
-    uxSavedInterruptStatus = ( UBaseType_t ) portSET_INTERRUPT_MASK_FROM_ISR();
-    {
-        if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )
-        {
-            ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToSend,
-                                         ( uint32_t ) 0,
-                                         eNoAction,
-                                         pxHigherPriorityTaskWoken );
-            ( pxStreamBuffer )->xTaskWaitingToSend = NULL;
-            xReturn = pdTRUE;
-        }
-        else
-        {
-            xReturn = pdFALSE;
-        }
-    }
-    portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedInterruptStatus );
-
-    return xReturn;
-} */
 /*-----------------------------------------------------------*/
 
 static size_t prvWriteBytesToBuffer( StreamBuffer_t * const pxStreamBuffer,
