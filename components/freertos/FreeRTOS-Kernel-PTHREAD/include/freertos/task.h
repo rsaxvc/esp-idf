@@ -366,13 +366,39 @@ typedef enum
  * \ingroup Tasks
  */
 #if ( configSUPPORT_DYNAMIC_ALLOCATION == 1 )
+    static inline __attribute__( ( always_inline ) )
     BaseType_t xTaskCreate( TaskFunction_t pxTaskCode,
-                            const char * const pcName,
-                            const configSTACK_DEPTH_TYPE uxStackDepth,
+                            const char * const pcName, /*lint !e971 Unqualified char types are allowed for */
+                            const configSTACK_DEPTH_TYPE usStackDepth,
                             void * const pvParameters,
                             UBaseType_t uxPriority,
-                            TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION;
-#endif
+                            TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION
+    {
+        /*
+         * The idf_additions.h has not been included here yet due to inclusion
+         * order. Thus we manually declare the function here.
+         */
+        extern BaseType_t xTaskCreatePinnedToCore( TaskFunction_t pxTaskCode,
+                                                   const char * const pcName,
+                                                   const configSTACK_DEPTH_TYPE usStackDepth,
+                                                   void * const pvParameters,
+                                                   UBaseType_t uxPriority,
+                                                   TaskHandle_t * const pvCreatedTask,
+                                                   const BaseType_t xCoreID );
+
+        /*
+         * Call the "PinnedToCore" version with tskNO_AFFINITY to create
+         * an unpinned task.
+         */
+        return xTaskCreatePinnedToCore( pxTaskCode,
+                                        pcName,
+                                        usStackDepth,
+                                        pvParameters,
+                                        uxPriority,
+                                        pxCreatedTask,
+                                        tskNO_AFFINITY );
+    }
+#endif /* configSUPPORT_DYNAMIC_ALLOCATION == 1 */
 
 /**
  *
@@ -475,13 +501,41 @@ typedef enum
  * \ingroup Tasks
  */
 #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+    static inline __attribute__( ( always_inline ) )
     TaskHandle_t xTaskCreateStatic( TaskFunction_t pxTaskCode,
-                                    const char * const pcName,
-                                    const configSTACK_DEPTH_TYPE uxStackDepth,
+                                    const char * const pcName, /*lint !e971 Unqualified char types are allowed */
+                                    const uint32_t ulStackDepth,
                                     void * const pvParameters,
                                     UBaseType_t uxPriority,
                                     StackType_t * const puxStackBuffer,
-                                    StaticTask_t * const pxTaskBuffer ) PRIVILEGED_FUNCTION;
+                                    StaticTask_t * const pxTaskBuffer ) PRIVILEGED_FUNCTION
+    {
+        /*
+         * The idf_additions.h has not been included here yet due to inclusion
+         * order. Thus we manually declare the function here.
+         */
+        extern TaskHandle_t xTaskCreateStaticPinnedToCore( TaskFunction_t pxTaskCode,
+                                                           const char * const pcName,
+                                                           const uint32_t ulStackDepth,
+                                                           void * const pvParameters,
+                                                           UBaseType_t uxPriority,
+                                                           StackType_t * const pxStackBuffer,
+                                                           StaticTask_t * const pxTaskBuffer,
+                                                           const BaseType_t xCoreID );
+
+        /*
+         * Call the "PinnedToCore" version with tskNO_AFFINITY to create
+         * an unpinned task.
+         */
+        return xTaskCreateStaticPinnedToCore( pxTaskCode,
+                                              pcName,
+                                              ulStackDepth,
+                                              pvParameters,
+                                              uxPriority,
+                                              puxStackBuffer,
+                                              pxTaskBuffer,
+                                              tskNO_AFFINITY );
+    }
 #endif /* configSUPPORT_STATIC_ALLOCATION */
 
 /** @cond !DOC_EXCLUDE_HEADER_SECTION */
@@ -645,51 +699,6 @@ typedef enum
 #endif
 
 /** @endcond */
-
-/**
- *
- * Memory regions are assigned to a restricted task when the task is created by
- * a call to xTaskCreateRestricted().  These regions can be redefined using
- * vTaskAllocateMPURegions().
- *
- * @param xTask The handle of the task being updated.
- *
- * @param pxRegions A pointer to a MemoryRegion_t structure that contains the
- * new memory region definitions.
- *
- * Example usage:
- * @code{c}
- * // Define an array of MemoryRegion_t structures that configures an MPU region
- * // allowing read/write access for 1024 bytes starting at the beginning of the
- * // ucOneKByte array.  The other two of the maximum 3 definable regions are
- * // unused so set to zero.
- * static const MemoryRegion_t xAltRegions[ portNUM_CONFIGURABLE_REGIONS ] =
- * {
- *  // Base address     Length      Parameters
- *  { ucOneKByte,       1024,       portMPU_REGION_READ_WRITE },
- *  { 0,                0,          0 },
- *  { 0,                0,          0 }
- * };
- *
- * void vATask( void *pvParameters )
- * {
- *  // This task was created such that it has access to certain regions of
- *  // memory as defined by the MPU configuration.  At some point it is
- *  // desired that these MPU regions are replaced with that defined in the
- *  // xAltRegions const struct above.  Use a call to vTaskAllocateMPURegions()
- *  // for this purpose.  NULL is used as the task handle to indicate that this
- *  // function should modify the MPU regions of the calling task.
- *  vTaskAllocateMPURegions( NULL, xAltRegions );
- *
- *  // Now the task can continue its function, but from this point on can only
- *  // access its stack and the ucOneKByte array (unless any other statically
- *  // defined or shared regions have been declared elsewhere).
- * }
- * @endcode
- * \ingroup Tasks
- */
-void vTaskAllocateMPURegions( TaskHandle_t xTask,
-                              const MemoryRegion_t * const pxRegions ) PRIVILEGED_FUNCTION;
 
 /**
  *

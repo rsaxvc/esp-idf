@@ -77,8 +77,123 @@ _Static_assert( tskNO_AFFINITY == ( BaseType_t ) CONFIG_FREERTOS_NO_AFFINITY, "C
         BaseType_t xReturn;
 
         configASSERT( taskVALID_CORE_ID( xCoreID ) == pdTRUE || xCoreID == tskNO_AFFINITY );
+        #if CONFIG_FREERTOS_SMP
+        {
+            /* If using Amazon SMP FreeRTOS. This function is just a wrapper around
+             * xTaskCreate() or xTaskCreateAffinitySet(). */
+            #if ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) )
+            {
+                /* Convert xCoreID into an affinity mask */
+                UBaseType_t uxCoreAffinityMask;
 
-        xReturn = xTaskCreate( pxTaskCode, pcName, usStackDepth, pvParameters, uxPriority, pxCreatedTask );
+                /* Bit shifting << xCoreID is only valid if we have less than
+                 * 32 cores. */
+                ESP_STATIC_ASSERT( configNUM_CORES < 32 );
+
+                if( xCoreID == tskNO_AFFINITY )
+                {
+                    uxCoreAffinityMask = tskNO_AFFINITY;
+                }
+                else
+                {
+                    uxCoreAffinityMask = ( 1 << xCoreID );
+                }
+
+                xReturn = xTaskCreateAffinitySet( pxTaskCode, pcName, usStackDepth, pvParameters, uxPriority, uxCoreAffinityMask, pxCreatedTask );
+            }
+            #else /* ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) ) */
+            {
+                xReturn = xTaskCreate( pxTaskCode, pcName, usStackDepth, pvParameters, uxPriority, pxCreatedTask );
+            }
+            #endif /* ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) ) */
+        }
+        #elif !CONFIG_IDF_TARGET_LINUX /* CONFIG_FREERTOS_SMP */
+        {
+            TCB_t * pxNewTCB;
+
+            /* If the stack grows down then allocate the stack then the TCB so the
+             * stack does not grow into the TCB.  Likewise if the stack grows up
+             * then allocate the TCB then the stack. */
+            #if ( portSTACK_GROWTH > 0 )
+            {
+                /* Allocate space for the TCB.  Where the memory comes from depends on
+                 * the implementation of the port malloc function and whether or not static
+                 * allocation is being used. */
+                pxNewTCB = ( TCB_t * ) pvPortMalloc( sizeof( TCB_t ) );
+
+                if( pxNewTCB != NULL )
+                {
+                    memset( ( void * ) pxNewTCB, 0x00, sizeof( TCB_t ) );
+
+                    /* Allocate space for the stack used by the task being created.
+                     * The base of the stack memory stored in the TCB so the task can
+                     * be deleted later if required. */
+                    pxNewTCB->pxStack = ( StackType_t * ) pvPortMallocStack( ( ( ( size_t ) usStackDepth ) * sizeof( StackType_t ) ) ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+
+                    if( pxNewTCB->pxStack == NULL )
+                    {
+                        /* Could not allocate the stack.  Delete the allocated TCB. */
+                        vPortFree( pxNewTCB );
+                        pxNewTCB = NULL;
+                    }
+                }
+            }
+            #else /* portSTACK_GROWTH */
+            {
+                StackType_t * pxStack;
+
+                /* Allocate space for the stack used by the task being created. */
+                pxStack = pvPortMallocStack( ( ( ( size_t ) usStackDepth ) * sizeof( StackType_t ) ) ); /*lint !e9079 All values returned by pvPortMalloc() have at least the alignment required by the MCU's stack and this allocation is the stack. */
+
+                if( pxStack != NULL )
+                {
+                    /* Allocate space for the TCB. */
+                    pxNewTCB = ( TCB_t * ) pvPortMalloc( sizeof( TCB_t ) ); /*lint !e9087 !e9079 All values returned by pvPortMalloc() have at least the alignment required by the MCU's stack, and the first member of TCB_t is always a pointer to the task's stack. */
+
+                    if( pxNewTCB != NULL )
+                    {
+                        memset( ( void * ) pxNewTCB, 0x00, sizeof( TCB_t ) );
+
+                        /* Store the stack location in the TCB. */
+                        pxNewTCB->pxStack = pxStack;
+                    }
+                    else
+                    {
+                        /* The stack cannot be used as the TCB was not created.  Free
+                         * it again. */
+                        vPortFreeStack( pxStack );
+                    }
+                }
+                else
+                {
+                    pxNewTCB = NULL;
+                }
+            }
+            #endif /* portSTACK_GROWTH */
+
+            if( pxNewTCB != NULL )
+            {
+                #if ( tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE != 0 ) /*lint !e9029 !e731 Macro has been consolidated for readability reasons. */
+                {
+                    /* Tasks can be created statically or dynamically, so note this
+                     * task was created dynamically in case it is later deleted. */
+                    pxNewTCB->ucStaticallyAllocated = tskDYNAMICALLY_ALLOCATED_STACK_AND_TCB;
+                }
+                #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
+
+                prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, pxCreatedTask, pxNewTCB, NULL, xCoreID );
+                prvAddNewTaskToReadyList( pxNewTCB );
+                xReturn = pdPASS;
+            }
+            else
+            {
+                xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+            }
+        }
+        #else
+        //RSA: TODO
+        xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+        #endif /* CONFIG_FREERTOS_SMP */
 
         return xReturn;
     }
@@ -103,7 +218,79 @@ _Static_assert( tskNO_AFFINITY == ( BaseType_t ) CONFIG_FREERTOS_NO_AFFINITY, "C
         configASSERT( portVALID_TCB_MEM( pxTaskBuffer ) );
         configASSERT( taskVALID_CORE_ID( xCoreID ) == pdTRUE || xCoreID == tskNO_AFFINITY );
 
-        xReturn = xTaskCreateStatic( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
+        #if CONFIG_FREERTOS_SMP
+        {
+            /* If using Amazon SMP FreeRTOS. This function is just a wrapper around
+             * xTaskCreateStatic() or xTaskCreateStaticAffinitySet(). */
+            #if ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) )
+            {
+                /* Convert xCoreID into an affinity mask */
+                UBaseType_t uxCoreAffinityMask;
+
+                /* Bit shifting << xCoreID is only valid if we have less than
+                 * 32 cores. */
+                ESP_STATIC_ASSERT( configNUM_CORES < 32 );
+
+                if( xCoreID == tskNO_AFFINITY )
+                {
+                    uxCoreAffinityMask = tskNO_AFFINITY;
+                }
+                else
+                {
+                    uxCoreAffinityMask = ( 1 << xCoreID );
+                }
+
+                xReturn = xTaskCreateStaticAffinitySet( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer, uxCoreAffinityMask );
+            }
+            #else /* ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) ) */
+            {
+                xReturn = xTaskCreateStatic( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
+            }
+            #endif /* ( ( configNUM_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) ) */
+        }
+        #elif !CONFIG_IDF_TARGET_LINUX /* CONFIG_FREERTOS_SMP */
+        {
+            TCB_t * pxNewTCB;
+
+            #if ( configASSERT_DEFINED == 1 )
+            {
+                /* Sanity check that the size of the structure used to declare a
+                 * variable of type StaticTask_t equals the size of the real task
+                 * structure. */
+                volatile size_t xSize = sizeof( StaticTask_t );
+                configASSERT( xSize == sizeof( TCB_t ) );
+                ( void ) xSize; /* Prevent lint warning when configASSERT() is not used. */
+            }
+            #endif /* configASSERT_DEFINED */
+
+            if( ( pxTaskBuffer != NULL ) && ( puxStackBuffer != NULL ) )
+            {
+                /* The memory used for the task's TCB and stack are passed into this
+                 * function - use them. */
+                pxNewTCB = ( TCB_t * ) pxTaskBuffer; /*lint !e740 !e9087 Unusual cast is ok as the structures are designed to have the same alignment, and the size is checked by an assert. */
+                memset( ( void * ) pxNewTCB, 0x00, sizeof( TCB_t ) );
+                pxNewTCB->pxStack = ( StackType_t * ) puxStackBuffer;
+
+                #if ( tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE != 0 ) /*lint !e731 !e9029 Macro has been consolidated for readability reasons. */
+                {xTaskCreate
+                    /* Tasks can be created statically or dynamically, so note this
+                     * task was created statically in case the task is later deleted. */
+                    pxNewTCB->ucStaticallyAllocated = tskSTATICALLY_ALLOCATED_STACK_AND_TCB;
+                }
+                #endif /* tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE */
+
+                prvInitialiseNewTask( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, &xReturn, pxNewTCB, NULL, xCoreID );
+                prvAddNewTaskToReadyList( pxNewTCB );
+            }
+            else
+            {
+                xReturn = NULL;
+            }
+        }
+        #else /* CONFIG_IDF_TARGET_LINUX */
+        //RSA: TODO
+        xReturn = NULL;
+        #endif /* CONFIG_FREERTOS_SMP */
 
         return xReturn;
     }
