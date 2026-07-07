@@ -447,17 +447,6 @@ void vTaskStartScheduler( void )
     }
 
 #endif /* configUSE_TICKLESS_IDLE */
-/*----------------------------------------------------------*/
-
-TickType_t xTaskGetTickCount( void )
-{
-    configASSERT(0);
-    TickType_t xTicks;
-
-    xTicks += ( TickType_t ) configINITIAL_TICK_COUNT;
-
-    return xTicks;
-}
 /*-----------------------------------------------------------*/
 
 BaseType_t xTaskIncrementTick( void )

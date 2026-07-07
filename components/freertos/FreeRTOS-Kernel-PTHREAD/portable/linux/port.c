@@ -75,6 +75,7 @@ static pthread_once_t hSigSetupThread = PTHREAD_ONCE_INIT;
 /*-----------------------------------------------------------*/
 
 static volatile BaseType_t xSchedulerEnd = pdFALSE;
+static volatile BaseType_t ts_init_done = pdFALSE;
 static struct timespec ts_init;
 
 /*-----------------------------------------------------------*/
@@ -133,6 +134,7 @@ TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
 BaseType_t xPortStartScheduler( void )
 {
     clock_gettime(CLOCK_MONOTONIC, &ts_init);
+    ts_init_done = pdTRUE;
 
     /* Start the timer that generates the tick ISR(SIGALRM).
        Interrupts are disabled here already. */
@@ -152,6 +154,19 @@ BaseType_t xPortStartScheduler( void )
     return 0;
 }
 /*-----------------------------------------------------------*/
+
+TickType_t xTaskGetTickCount( void )
+{
+    if( ts_init_done != pdTRUE)
+    {
+        return 0;
+    }
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return (ts.tv_sec - ts_init.tv_sec) * configTICK_RATE_HZ + (int64_t)(ts.tv_nsec - ts_init.tv_nsec) * configTICK_RATE_HZ / 1000000000 + configINITIAL_TICK_COUNT;
+}
+/*----------------------------------------------------------*/
 
 void vPortEndScheduler( void )
 {
