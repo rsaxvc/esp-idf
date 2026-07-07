@@ -56,6 +56,11 @@
  * correct privileged Vs unprivileged linkage and placement. */
 #undef MPU_WRAPPERS_INCLUDED_FROM_API_FILE /*lint !e961 !e750 !e9021. */
 
+/* Values that can be assigned to the ucNotifyState member of the TCB. */
+#define taskNOT_WAITING_NOTIFICATION              ( ( uint8_t ) 0 ) /* Must be zero as it is the initialised value. */
+#define taskWAITING_NOTIFICATION                  ( ( uint8_t ) 1 )
+#define taskNOTIFICATION_RECEIVED                 ( ( uint8_t ) 2 )
+
 /* Set configUSE_STATS_FORMATTING_FUNCTIONS to 2 to include the stats formatting
  * functions but without including stdio.h here. */
 #if ( configUSE_STATS_FORMATTING_FUNCTIONS == 1 )
@@ -112,7 +117,7 @@
 
 /* Other file private variables. --------------------------------*/
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning = pdFALSE;
-PRIVILEGED_DATA static pthread_key_t task_handle_key;
+PRIVILEGED_DATA pthread_key_t task_handle_key;
 
 /* Spinlock required for SMP critical sections. This lock protects all of the
  * kernel's data structures such as various tasks lists, flags, and tick counts. */
@@ -264,6 +269,7 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
 
     void vTaskDelete( TaskHandle_t xTaskToDelete )
     {
+        if(!xTaskToDelete) xTaskToDelete = xTaskGetCurrentTaskHandle();
         taskENTER_CRITICAL( &xKernelLock );
         traceTASK_DELETE( xTaskToDelete );
         portPRE_TASK_DELETE_HOOK( xTaskToDelete, pdFALSE);
@@ -373,6 +379,8 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
 
 void vTaskStartScheduler( void )
 {
+    configASSERT(!pthread_key_create(&task_handle_key, NULL));
+
     BaseType_t xReturn = pdPASS;
 
     #if ( configUSE_TIMERS == 1 )
@@ -757,15 +765,65 @@ BaseType_t xTaskIncrementTick( void )
 /*-----------------------------------------------------------*/
 
 #if ( configUSE_TASK_NOTIFICATIONS == 1 )
+struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
+    struct timespec res;
+    res.tv_sec = a.tv_sec + b / configTICK_RATE_HZ;
+    res.tv_nsec = a.tv_nsec + (int64_t)(b % configTICK_RATE_HZ) * 1000000000 / configTICK_RATE_HZ;
+
+    if (res.tv_nsec >= 1000000000L) {
+        res.tv_nsec -= 1000000000L;
+        res.tv_sec++;
+    }
+    return res;
+}
 
     uint32_t ulTaskGenericNotifyTake( UBaseType_t uxIndexToWait,
                                       BaseType_t xClearCountOnExit,
                                       TickType_t xTicksToWait )
     {
-        uint32_t ulReturn;
-
         configASSERT( uxIndexToWait < configTASK_NOTIFICATION_ARRAY_ENTRIES );
-        configASSERT( 0 );
+        TaskHandle_t me = xTaskGetCurrentTaskHandle();
+        configASSERT( me );
+
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        struct timespec bailout = timespec_add_ticks(ts, xTicksToWait);
+
+        configASSERT( !pthread_mutex_lock(&me->lock) );
+        int timedOut = -1;
+
+        /* Only block if the notification count is not already non-zero. */
+        if( me->ulNotifiedValue[ uxIndexToWait ] == 0UL )
+        {
+            /* Mark this task as waiting for a notification. */
+            me->ucNotifyState[ uxIndexToWait ] = taskWAITING_NOTIFICATION;
+
+            if( xTicksToWait > ( TickType_t ) 0 )
+            {
+                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1){
+                    timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                }
+            }
+        }
+        uint32_t ulReturn = me->ulNotifiedValue[ uxIndexToWait ];
+        if( ulReturn != 0UL )
+        {
+            if( xClearCountOnExit != pdFALSE )
+            {
+                me->ulNotifiedValue[ uxIndexToWait ] = 0UL;
+            }
+            else
+            {
+                me->ulNotifiedValue[ uxIndexToWait ] = ulReturn - ( uint32_t ) 1;
+            }
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+
+        me->ucNotifyState[ uxIndexToWait ] = taskNOT_WAITING_NOTIFICATION;
+        configASSERT( !pthread_mutex_unlock(&me->lock) );
 
         return ulReturn;
     }
@@ -784,6 +842,8 @@ BaseType_t xTaskIncrementTick( void )
         BaseType_t xReturn;
 
         configASSERT( uxIndexToWait < configTASK_NOTIFICATION_ARRAY_ENTRIES );
+        TaskHandle_t me = xTaskGetCurrentTaskHandle();
+        configASSERT( me );
         configASSERT( 0 );
 
         return xReturn;
@@ -804,7 +864,56 @@ BaseType_t xTaskIncrementTick( void )
 
         configASSERT( uxIndexToNotify < configTASK_NOTIFICATION_ARRAY_ENTRIES );
         configASSERT( xTaskToNotify );
-        configASSERT( 0 );
+
+        configASSERT( !pthread_mutex_lock(&xTaskToNotify->lock) );
+        if( pulPreviousNotificationValue != NULL )
+        {
+            *pulPreviousNotificationValue = xTaskToNotify->ulNotifiedValue[ uxIndexToNotify ];
+        }
+
+        uint8_t ucOriginalNotifyState = xTaskToNotify->ucNotifyState[ uxIndexToNotify ];
+        xTaskToNotify->ucNotifyState[ uxIndexToNotify ] = taskNOTIFICATION_RECEIVED;
+
+        switch( eAction )
+        {
+            case eSetBits:
+                xTaskToNotify->ulNotifiedValue[ uxIndexToNotify ] |= ulValue;
+                break;
+
+            case eIncrement:
+                ( xTaskToNotify->ulNotifiedValue[ uxIndexToNotify ] )++;
+                break;
+
+            case eSetValueWithOverwrite:
+                xTaskToNotify->ulNotifiedValue[ uxIndexToNotify ] = ulValue;
+                break;
+
+            case eSetValueWithoutOverwrite:
+                if( ucOriginalNotifyState != taskNOTIFICATION_RECEIVED )
+                {
+                    xTaskToNotify->ulNotifiedValue[ uxIndexToNotify ] = ulValue;
+                }
+                else
+                {
+                    /* The value could not be written to the task. */
+                    xReturn = pdFAIL;
+                }
+                break;
+
+            case eNoAction:
+                /* The task is being notified without its notify value being
+                 * updated. */
+                break;
+
+            default:
+                /* Should not get here if all enums are handled.
+                 * Artificially force an assert by testing a value the
+                 * compiler can't assume is const. */
+                configASSERT( 0 );
+                break;
+        }
+
+        configASSERT( !pthread_mutex_unlock(&xTaskToNotify->lock) );
 
         return xReturn;
     }

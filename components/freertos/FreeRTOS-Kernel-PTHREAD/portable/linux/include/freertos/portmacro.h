@@ -74,13 +74,22 @@ typedef pthread_mutex_t portMUX_TYPE;
 typedef struct tskTaskControlBlock
 {
     pthread_t tid;
+
     TaskFunction_t pxCode;
     void * pvParams;
 #if configNUM_THREAD_LOCAL_STORAGE_POINTERS != 0
     void * pvThreadLocalStoragePointers[configNUM_THREAD_LOCAL_STORAGE_POINTERS];
 #endif
+
+    //Task-Local notifications
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    uint32_t ulNotifiedValue[ configTASK_NOTIFICATION_ARRAY_ENTRIES ];
+    uint8_t ucNotifyState[ configTASK_NOTIFICATION_ARRAY_ENTRIES ];
 } tskTCB;
 typedef tskTCB TCB_t;
+
+extern pthread_key_t task_handle_key;
 
 typedef pthread_t StackType_t;
 typedef portBASE_TYPE BaseType_t;

@@ -95,6 +95,7 @@ void app_main(void);
 static void main_task(void* args)
 {
     app_main();
+    while(1) usleep(10000);
     vTaskDelete(NULL);
 }
 
@@ -126,14 +127,21 @@ int main(int argc, const char **argv)
 #endif // CONFIG_COMPILER_OPTIMIZATION_DEBUG
 
     usleep(1000);
+
+    ESP_LOGI(TAG, "Starting scheduler.");
+    vTaskStartScheduler();
+
     BaseType_t res = xTaskCreatePinnedToCore(&main_task, "main",
                                                 ESP_TASK_MAIN_STACK, NULL,
                                                 ESP_TASK_MAIN_PRIO, NULL, ESP_TASK_MAIN_CORE);
     assert(res == pdTRUE);
     (void)res;
 
-    ESP_LOGI(TAG, "Starting scheduler.");
-    vTaskStartScheduler();
+    /* Wait until signaled by vPortEndScheduler(). */
+    while ( 1/*!xSchedulerEnd*/ )
+    {
+        usleep(100000);
+    }
 
     // This line should never be reached
     assert(false);

@@ -112,9 +112,14 @@ TCB_t *pxPortInitialiseStack(   TaskFunction_t pxCode,
 
     thread->pxCode = pxCode;
     thread->pvParams = pvParameters;
+    configASSERT( !pthread_mutex_init(&thread->lock, NULL));
+    configASSERT( !pthread_cond_init(&thread->cond, NULL));
 
-    pthread_attr_init( &xThreadAttributes );
+    configASSERT( !pthread_attr_init( &xThreadAttributes ));
     //pthread_attr_setstack( &xThreadAttributes, pxEndOfStack, ulStackSize );
+
+    memset(thread->ulNotifiedValue, 0x00, sizeof(thread->ulNotifiedValue));
+    memset(thread->ucNotifyState, 0x00, sizeof(thread->ucNotifyState));
 
     iRet = pthread_create( &thread->tid, &xThreadAttributes,
                            prvWaitForStart, thread );
@@ -139,17 +144,6 @@ BaseType_t xPortStartScheduler( void )
     /* Start the timer that generates the tick ISR(SIGALRM).
        Interrupts are disabled here already. */
     prvSetupTimerInterrupt();
-
-    /* Wait until signaled by vPortEndScheduler(). */
-    while ( !xSchedulerEnd )
-    {
-        usleep(100000);
-    }
-
-#if ( configUSE_TIMERS == 1 )
-    /* Cancel the Timer task and free its resources */
-    vPortCancelThread( xTimerGetTimerDaemonTaskHandle() );
-#endif /* configUSE_TIMERS */
 
     return 0;
 }
@@ -297,6 +291,9 @@ void vPortCancelThread( TCB_t * pxTaskToDelete )
         vTaskPreDeletionHook( pxTaskToDelete );
     #endif /* CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK */
 
+    configASSERT( !pthread_cond_destroy(&pxTaskToDelete->cond));
+    configASSERT( !pthread_mutex_destroy(&pxTaskToDelete->lock));
+
     pthread_cancel( pxTaskToDelete->tid );
     pthread_join( pxTaskToDelete->tid, NULL );
 }
@@ -305,6 +302,9 @@ void vPortCancelThread( TCB_t * pxTaskToDelete )
 static void *prvWaitForStart( void * pvParams )
 {
     TCB_t *pxThread = pvParams;
+
+    /* Save off TCB_t pointer into thread-local-storage */
+    configASSERT(!pthread_setspecific(task_handle_key, pvParams));
 
     /* Call the task's entry point. */
     pxThread->pxCode( pxThread->pvParams );
