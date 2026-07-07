@@ -192,7 +192,8 @@ _Static_assert( tskNO_AFFINITY == ( BaseType_t ) CONFIG_FREERTOS_NO_AFFINITY, "C
         }
         #else
         //RSA: TODO
-        xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+        prvInitialiseNewTask( pxTaskCode, pcName, ( uint32_t ) usStackDepth, pvParameters, uxPriority, pxCreatedTask, NULL, xCoreID );
+        xReturn = pdPASS;
         #endif /* CONFIG_FREERTOS_SMP */
 
         return xReturn;
@@ -272,7 +273,7 @@ _Static_assert( tskNO_AFFINITY == ( BaseType_t ) CONFIG_FREERTOS_NO_AFFINITY, "C
                 pxNewTCB->pxStack = ( StackType_t * ) puxStackBuffer;
 
                 #if ( tskSTATIC_AND_DYNAMIC_ALLOCATION_POSSIBLE != 0 ) /*lint !e731 !e9029 Macro has been consolidated for readability reasons. */
-                {xTaskCreate
+                {
                     /* Tasks can be created statically or dynamically, so note this
                      * task was created statically in case the task is later deleted. */
                     pxNewTCB->ucStaticallyAllocated = tskSTATICALLY_ALLOCATED_STACK_AND_TCB;
@@ -289,7 +290,7 @@ _Static_assert( tskNO_AFFINITY == ( BaseType_t ) CONFIG_FREERTOS_NO_AFFINITY, "C
         }
         #else /* CONFIG_IDF_TARGET_LINUX */
         //RSA: TODO
-        xReturn = NULL;
+        prvInitialiseNewTask( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, &xReturn, NULL, xCoreID );
         #endif /* CONFIG_FREERTOS_SMP */
 
         return xReturn;
