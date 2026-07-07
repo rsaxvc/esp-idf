@@ -186,7 +186,7 @@ void vPortEnterCritical( portMUX_TYPE *mux )
 
 void vPortExitCritical( portMUX_TYPE *mux )
 {
-    configASSERT( pthread_mutex_unlock(mux) );
+    configASSERT( pthread_mutex_unlock(mux) == 0 );
 }
 /*-----------------------------------------------------------*/
 
