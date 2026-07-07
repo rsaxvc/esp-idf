@@ -254,7 +254,10 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
     /* Store the task name in the TCB. */
     if( pcName != NULL )
     {
-        configASSERT( 0 == pthread_setname_np( pxNewTask->tid, pcName ));
+        /* Linux only support 15B pthread names*/
+        char buf[15+1];
+        snprintf(buf, sizeof(buf), "%s", pcName);
+        configASSERT( 0 == pthread_setname_np( pxNewTask->tid, buf ));
     }
     else
     {
