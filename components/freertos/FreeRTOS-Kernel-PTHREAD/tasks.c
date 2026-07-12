@@ -804,7 +804,12 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
             if( xTicksToWait > ( TickType_t ) 0 )
             {
                 traceTASK_NOTIFY_WAIT_BLOCK( uxIndexToWaitOn );
-                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1){
+                if( xTicksToWait == portMAX_DELAY )
+                {
+                    timedOut = pthread_cond_wait(&me->cond, &me->lock);
+                }
+                else while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1)
+                {
                     timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
                 }
             }
@@ -870,7 +875,12 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
 
             if( xTicksToWait > ( TickType_t ) 0 )
             {
-                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1){
+                if( xTicksToWait == portMAX_DELAY )
+                {
+                    timedOut = pthread_cond_wait(&me->cond, &me->lock);
+                }
+                else while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1)
+                {	
                     timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
                 }
             }
