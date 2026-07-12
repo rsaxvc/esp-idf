@@ -803,6 +803,7 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
 
             if( xTicksToWait > ( TickType_t ) 0 )
             {
+                traceTASK_NOTIFY_WAIT_BLOCK( uxIndexToWaitOn );
                 while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1){
                     timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
                 }
@@ -847,7 +848,68 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
         configASSERT( uxIndexToWait < configTASK_NOTIFICATION_ARRAY_ENTRIES );
         TaskHandle_t me = xTaskGetCurrentTaskHandle();
         configASSERT( me );
-        configASSERT( 0 );
+
+
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        struct timespec bailout = timespec_add_ticks(ts, xTicksToWait);
+
+        configASSERT( !pthread_mutex_lock(&me->lock) );
+        int timedOut = -1;
+
+        /* Only block if a notification is not already pending. */
+        if( me->ucNotifyState[ uxIndexToWait ] != taskNOTIFICATION_RECEIVED )
+        {
+            /* Clear bits in the task's notification value as bits may get
+             * set by the notifying task or interrupt. This can be used
+             * to clear the value to zero. */
+            me->ulNotifiedValue[ uxIndexToWait ] &= ~ulBitsToClearOnEntry;
+
+            /* Mark this task as waiting for a notification. */
+            me->ucNotifyState[ uxIndexToWait ] = taskWAITING_NOTIFICATION;
+
+            if( xTicksToWait > ( TickType_t ) 0 )
+            {
+                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1){
+                    timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                }
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+
+        if( pulNotificationValue != NULL )
+        {
+            /* Output the current notification value, which may or may not
+             * have changed. */
+            *pulNotificationValue = me->ulNotifiedValue[ uxIndexToWait ];
+        }
+
+        /* If ucNotifyValue is set then either the task never entered the
+         * blocked state (because a notification was already pending) or the
+         * task unblocked because of a notification.  Otherwise the task
+         * unblocked because of a timeout. */
+        if( me->ucNotifyState[ uxIndexToWait ] != taskNOTIFICATION_RECEIVED )
+        {
+            /* A notification was not received. */
+            xReturn = pdFALSE;
+        }
+        else
+        {
+            /* A notification was already pending or a notification was
+             * received while the task was waiting. */
+            me->ulNotifiedValue[ uxIndexToWait ] &= ~ulBitsToClearOnExit;
+            xReturn = pdTRUE;
+        }
+
+        me->ucNotifyState[ uxIndexToWait ] = taskNOT_WAITING_NOTIFICATION;
+        configASSERT( !pthread_mutex_unlock(&me->lock) );
 
         return xReturn;
     }
