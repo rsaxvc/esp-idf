@@ -121,7 +121,7 @@ PRIVILEGED_DATA pthread_key_t task_handle_key;
 
 /* Spinlock required for SMP critical sections. This lock protects all of the
  * kernel's data structures such as various tasks lists, flags, and tick counts. */
-PRIVILEGED_DATA static portMUX_TYPE xKernelLock = portMUX_INITIALIZER_UNLOCKED;
+PRIVILEGED_DATA static portMUX_TYPE xKernelLock = PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP;
 
 /*lint -restore */
 
@@ -276,8 +276,8 @@ static void prvInitialiseNewTask( TaskFunction_t pxTaskCode,
         taskENTER_CRITICAL( &xKernelLock );
         traceTASK_DELETE( xTaskToDelete );
         portPRE_TASK_DELETE_HOOK( xTaskToDelete, pdFALSE);
-        portCLEAN_UP_TCB( xTaskToDelete );
         taskEXIT_CRITICAL( &xKernelLock );
+        portCLEAN_UP_TCB( xTaskToDelete );
     }
 
 #endif /* INCLUDE_vTaskDelete */
@@ -793,24 +793,26 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
         struct timespec bailout = timespec_add_ticks(ts, xTicksToWait);
 
         configASSERT( !pthread_mutex_lock(&me->lock) );
-        int timedOut = -1;
+        int condRet = 0;
 
         /* Only block if the notification count is not already non-zero. */
         if( me->ulNotifiedValue[ uxIndexToWait ] == 0UL )
         {
             /* Mark this task as waiting for a notification. */
             me->ucNotifyState[ uxIndexToWait ] = taskWAITING_NOTIFICATION;
-
             if( xTicksToWait > ( TickType_t ) 0 )
             {
                 traceTASK_NOTIFY_WAIT_BLOCK( uxIndexToWaitOn );
-                if( xTicksToWait == portMAX_DELAY )
+                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && condRet == 0)
                 {
-                    timedOut = pthread_cond_wait(&me->cond, &me->lock);
-                }
-                else while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1)
-                {
-                    timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                    if( xTicksToWait == portMAX_DELAY )
+                    {
+                        condRet = pthread_cond_wait(&me->cond, &me->lock);
+                    }
+                    else
+                    {
+                        condRet = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                    }
                 }
             }
         }
@@ -875,13 +877,16 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
 
             if( xTicksToWait > ( TickType_t ) 0 )
             {
-                if( xTicksToWait == portMAX_DELAY )
+                while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1)
                 {
-                    timedOut = pthread_cond_wait(&me->cond, &me->lock);
-                }
-                else while(me->ulNotifiedValue[ uxIndexToWait ] == 0U && timedOut != -1)
-                {	
-                    timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                    if( xTicksToWait == portMAX_DELAY )
+                    {
+                        timedOut = pthread_cond_wait(&me->cond, &me->lock);
+                    }
+                    else
+                    {
+                        timedOut = pthread_cond_timedwait(&me->cond, &me->lock, &bailout);
+                    }
                 }
             }
             else
@@ -988,6 +993,7 @@ struct timespec timespec_add_ticks(struct timespec a, TickType_t b) {
                 break;
         }
 
+        configASSERT( !pthread_cond_broadcast(&xTaskToNotify->cond) );
         configASSERT( !pthread_mutex_unlock(&xTaskToNotify->lock) );
 
         return xReturn;

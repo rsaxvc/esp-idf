@@ -291,7 +291,9 @@ void vPortCancelThread( TCB_t * pxTaskToDelete )
         vTaskPreDeletionHook( pxTaskToDelete );
     #endif /* CONFIG_FREERTOS_TASK_PRE_DELETION_HOOK */
 
+    configASSERT( !pthread_mutex_lock(&pxTaskToDelete->lock));
     configASSERT( !pthread_cond_destroy(&pxTaskToDelete->cond));
+    configASSERT( !pthread_mutex_unlock(&pxTaskToDelete->lock));
     configASSERT( !pthread_mutex_destroy(&pxTaskToDelete->lock));
 
     pthread_cancel( pxTaskToDelete->tid );
