@@ -95,7 +95,6 @@ void app_main(void);
 static void main_task(void* args)
 {
     app_main();
-    while(1) usleep(10000);
     vTaskDelete(NULL);
 }
 
