@@ -177,6 +177,11 @@ void vPortYieldOtherCore(BaseType_t coreid);
 
 #define portMUX_INITIALIZE(mux)             pthread_mutex_init(mux, NULL)    /*< Initialize a spinlock to its unlocked state */
 
+static inline int esp_cpu_get_core_id(void)
+{
+    return 0;
+}
+
 /**
  * @brief Get the current core's ID
  *
@@ -185,7 +190,7 @@ void vPortYieldOtherCore(BaseType_t coreid);
  */
 static inline BaseType_t xPortGetCoreID(void)
 {
-    return (BaseType_t) 0;
+    return (BaseType_t) esp_cpu_get_core_id();
 }
 
 /**
