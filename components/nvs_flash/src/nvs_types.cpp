@@ -63,7 +63,8 @@ bool Item::checkHeaderConsistency(const uint8_t entryIndex) const
     case ItemType::U64:
     case ItemType::I64:
     case ItemType::FLOAT:
-    case ItemType::DOUBLE: {
+    case ItemType::DOUBLE:
+    case ItemType::KEYONLY: {
         if (span != 1) {
             ESP_LOGD(TAG, "Invalid span %u for datatype %#04x", (unsigned int)span, (unsigned int)datatype);
             return false;

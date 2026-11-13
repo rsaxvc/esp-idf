@@ -26,6 +26,7 @@ class NVS_Constants:
             0x41: 'blob',
             0x42: 'blob_data',
             0x48: 'blob_index',
+            0x50: 'keyonly',
         }
         self.page_status = {
             0xFFFFFFFF: 'Empty',

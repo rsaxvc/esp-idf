@@ -36,6 +36,7 @@ NVS operates on key-value pairs. Keys are ASCII strings; the maximum key length 
 - floating point types: ``float`` and ``double``
 - zero-terminated C-like string
 - variable length binary data - BLOB
+- key only, with no value (set with :cpp:func:`nvs_set_keyonly`, checked with :cpp:func:`nvs_find_key`), useful for flags whose presence is the information
 
 .. note::
 
@@ -450,6 +451,8 @@ Key
 
 Data
     For integer types, this field contains the value itself. If the value itself is shorter than 8 bytes, it is padded to the right, with unused bytes filled with ``0xff``.
+
+    For key only entries (type ``0x50``), all 8 bytes are left as ``0xff``.
 
     For "BLOB index" entry, these 8 bytes hold the following information about data-chunks:
 

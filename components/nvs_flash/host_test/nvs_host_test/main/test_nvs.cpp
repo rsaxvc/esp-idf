@@ -4952,6 +4952,83 @@ TEST_CASE("nvs find key tests", "[nvs]")
     TEST_ESP_OK(nvs_flash_deinit_partition(TEST_DEFAULT_PARTITION_NAME));
 }
 
+TEST_CASE("nvs keyonly tests", "[nvs]")
+{
+    // TC testing nvs_set_keyonly function
+    // Verifies that a key without a value can be set, found, iterated, overwritten by and
+    // overwrite other datatypes, survives re-initialization and can be erased.
+
+    TEST_ESP_OK(NVSPartitionTestHelper::randomize_partition(TEST_DEFAULT_PARTITION_NAME, 100));
+
+    TEST_ESP_OK(nvs_flash_init_partition(TEST_DEFAULT_PARTITION_NAME));
+
+    nvs_handle_t handle;
+    nvs_handle_t handle_ro;
+    nvs_type_t datatype_found;
+    size_t used_entries;
+    size_t used_entries_after;
+    int32_t i32_val;
+
+    TEST_ESP_OK(nvs_open_from_partition(TEST_DEFAULT_PARTITION_NAME, "namespace1", NVS_READWRITE, &handle));
+
+    // set keyonly, it occupies exactly one entry
+    TEST_ESP_OK(nvs_get_used_entry_count(handle, &used_entries));
+    TEST_ESP_ERR(nvs_find_key(handle, "flag", &datatype_found), ESP_ERR_NVS_NOT_FOUND);
+    TEST_ESP_OK(nvs_set_keyonly(handle, "flag"));
+    TEST_ESP_OK(nvs_find_key(handle, "flag", &datatype_found));
+    CHECK(datatype_found == NVS_TYPE_KEYONLY);
+    TEST_ESP_OK(nvs_get_used_entry_count(handle, &used_entries_after));
+    CHECK(used_entries_after == used_entries + 1);
+
+    // setting the same keyonly again does not write a new entry
+    TEST_ESP_OK(nvs_set_keyonly(handle, "flag"));
+    TEST_ESP_OK(nvs_get_used_entry_count(handle, &used_entries));
+    CHECK(used_entries == used_entries_after);
+
+    // keyonly can't be read as other datatype
+    TEST_ESP_ERR(nvs_get_i32(handle, "flag", &i32_val), ESP_ERR_NVS_NOT_FOUND);
+
+    // iterator reports keyonly entries
+    nvs_iterator_t it = nullptr;
+    TEST_ESP_OK(nvs_entry_find(TEST_DEFAULT_PARTITION_NAME, "namespace1", NVS_TYPE_KEYONLY, &it));
+    nvs_entry_info_t info;
+    TEST_ESP_OK(nvs_entry_info(it, &info));
+    CHECK(info.type == NVS_TYPE_KEYONLY);
+    CHECK(strcmp(info.key, "flag") == 0);
+    TEST_ESP_ERR(nvs_entry_next(&it), ESP_ERR_NVS_NOT_FOUND);
+    nvs_release_iterator(it);
+
+    // overwrite keyonly with a value and back
+    TEST_ESP_OK(nvs_set_i32(handle, "flag", 0x12345678));
+    TEST_ESP_OK(nvs_find_key(handle, "flag", &datatype_found));
+    CHECK(datatype_found == NVS_TYPE_I32);
+    TEST_ESP_OK(nvs_set_keyonly(handle, "flag"));
+    TEST_ESP_OK(nvs_find_key(handle, "flag", &datatype_found));
+    CHECK(datatype_found == NVS_TYPE_KEYONLY);
+    TEST_ESP_OK(nvs_get_used_entry_count(handle, &used_entries));
+    CHECK(used_entries == used_entries_after);
+
+    // read only handle can't set keyonly
+    TEST_ESP_OK(nvs_open_from_partition(TEST_DEFAULT_PARTITION_NAME, "namespace1", NVS_READONLY, &handle_ro));
+    TEST_ESP_ERR(nvs_set_keyonly(handle_ro, "flag2"), ESP_ERR_NVS_READ_ONLY);
+    nvs_close(handle_ro);
+
+    // keyonly survives re-initialization
+    nvs_close(handle);
+    TEST_ESP_OK(nvs_flash_deinit_partition(TEST_DEFAULT_PARTITION_NAME));
+    TEST_ESP_OK(nvs_flash_init_partition(TEST_DEFAULT_PARTITION_NAME));
+    TEST_ESP_OK(nvs_open_from_partition(TEST_DEFAULT_PARTITION_NAME, "namespace1", NVS_READWRITE, &handle));
+    TEST_ESP_OK(nvs_find_key(handle, "flag", &datatype_found));
+    CHECK(datatype_found == NVS_TYPE_KEYONLY);
+
+    // erase keyonly
+    TEST_ESP_OK(nvs_erase_key(handle, "flag"));
+    TEST_ESP_ERR(nvs_find_key(handle, "flag", &datatype_found), ESP_ERR_NVS_NOT_FOUND);
+
+    nvs_close(handle);
+    TEST_ESP_OK(nvs_flash_deinit_partition(TEST_DEFAULT_PARTITION_NAME));
+}
+
 TEST_CASE("nvs handle purge test", "[nvs]")
 {
     // TC validating that erased and overwritten entries are purged from NVS storage based on the mode of handle opening.

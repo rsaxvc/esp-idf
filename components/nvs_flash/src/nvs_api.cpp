@@ -531,6 +531,18 @@ extern "C" esp_err_t nvs_set_blob(nvs_handle_t c_handle, const char* key, const 
     return handle->set_blob(key, value, length);
 }
 
+extern "C" esp_err_t nvs_set_keyonly(nvs_handle_t c_handle, const char* key)
+{
+    Lock lock;
+    ESP_LOGD(TAG, "%s %s", __func__, key);
+    NVSHandleSimple *handle;
+    auto err = nvs_find_ns_handle(c_handle, &handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return handle->set_keyonly(key);
+}
+
 
 template<typename T>
 static esp_err_t nvs_get(nvs_handle_t c_handle, const char* key, T* out_value)

@@ -209,7 +209,9 @@ esp_err_t Page::writeItem(uint8_t nsIndex, ItemType datatype, const char* key, c
     }
 
     if (!isVariableLengthType(datatype)) {
-        memcpy(item.data, data, dataSize);
+        if (dataSize > 0) {
+            memcpy(item.data, data, dataSize);
+        }
         item.crc32 = item.calculateCrc32();
         err = writeEntry(item);
         if (err != ESP_OK) {
@@ -307,7 +309,9 @@ esp_err_t Page::readItem(uint8_t nsIndex, ItemType datatype, const char* key, vo
             return ESP_ERR_NVS_TYPE_MISMATCH;
         }
 
-        memcpy(data, item.data, dataSize);
+        if (dataSize > 0) {
+            memcpy(data, item.data, dataSize);
+        }
         return ESP_OK;
     }
 
@@ -337,7 +341,7 @@ esp_err_t Page::cmpItem(uint8_t nsIndex, ItemType datatype, const char* key, con
             return ESP_ERR_NVS_TYPE_MISMATCH;
         }
 
-        if (memcmp(data, item.data, dataSize)) {
+        if (dataSize > 0 && memcmp(data, item.data, dataSize)) {
             return ESP_ERR_NVS_CONTENT_DIFFERS;
         }
         return ESP_OK;

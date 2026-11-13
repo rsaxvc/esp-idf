@@ -214,3 +214,26 @@ TEST_CASE("NVSHandleSimple CXX api read/write blob", "[nvs cxx]")
 
     nvs_flash_deinit_partition(TEST_DEFAULT_PARTITION_NAME);
 }
+
+TEST_CASE("NVSHandle CXX api set_keyonly", "[nvs cxx]")
+{
+    esp_err_t result;
+    shared_ptr<nvs::NVSHandle> handle;
+    nvs_type_t datatype_found;
+
+    REQUIRE(nvs_flash_erase_partition(TEST_DEFAULT_PARTITION_NAME) == ESP_OK);
+    REQUIRE(nvs_flash_init_partition(TEST_DEFAULT_PARTITION_NAME) == ESP_OK);
+
+    handle = nvs::open_nvs_handle_from_partition(TEST_DEFAULT_PARTITION_NAME, "ns_1", NVS_READWRITE, &result);
+    REQUIRE(result == ESP_OK);
+    REQUIRE(handle);
+
+    CHECK(handle->set_keyonly("flag") == ESP_OK);
+    CHECK(handle->find_key("flag", datatype_found) == ESP_OK);
+    CHECK(datatype_found == NVS_TYPE_KEYONLY);
+    CHECK(handle->erase_item("flag") == ESP_OK);
+    CHECK(handle->find_key("flag", datatype_found) == ESP_ERR_NVS_NOT_FOUND);
+
+    handle.reset();
+    REQUIRE(nvs_flash_deinit_partition(TEST_DEFAULT_PARTITION_NAME) == ESP_OK);
+}

@@ -43,6 +43,7 @@ enum class ItemType : uint8_t {
     BLOB = 0x41,
     BLOB_DATA = NVS_TYPE_BLOB,
     BLOB_IDX  = 0x48,
+    KEYONLY   = NVS_TYPE_KEYONLY,
     ANY  = NVS_TYPE_ANY
 };
 
@@ -171,6 +172,20 @@ public:
      * @note compare to nvs_set_blob() in nvs.h
      */
     virtual esp_err_t set_blob(const char *key, const void* blob, size_t len) = 0;
+
+    /**
+     * @brief      set a key without a value
+     *
+     * @param[in]  key     Key name. Maximal length is (NVS_KEY_NAME_MAX_SIZE-1) characters. Shouldn't be empty.
+     *
+     * @return     same as set_item
+     *
+     * @note compare to nvs_set_keyonly() in nvs.h
+     */
+    esp_err_t set_keyonly(const char *key)
+    {
+        return set_typed_item(ItemType::KEYONLY, key, nullptr, 0);
+    }
 
     /**
      * @brief      get string value for given key

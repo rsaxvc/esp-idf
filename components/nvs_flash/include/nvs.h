@@ -112,6 +112,7 @@ typedef enum {
     NVS_TYPE_DOUBLE = 0x28, /*!< Type double (IEEE 754 double precision) */
     NVS_TYPE_STR   = 0x21,  /*!< Type string */
     NVS_TYPE_BLOB  = 0x42,  /*!< Type blob */
+    NVS_TYPE_KEYONLY = 0x50, /*!< Type key only, the entry carries no value */
     NVS_TYPE_ANY   = 0xff   /*!< Must be last */
 } nvs_type_t;
 
@@ -392,6 +393,37 @@ esp_err_t nvs_set_str (nvs_handle_t handle, const char* key, const char* value);
  *             - ESP_ERR_NVS_VALUE_TOO_LONG if the value is too long
  */
 esp_err_t nvs_set_blob(nvs_handle_t handle, const char* key, const void* value, size_t length);
+
+/**
+ * @brief       set a key without a value
+ *
+ * Stores a key of type NVS_TYPE_KEYONLY, which carries no value and occupies a single entry.
+ * Use nvs_find_key to check whether the key is present and nvs_erase_key to remove it.
+ * If the key already exists with a different type, the old value is replaced.
+ * Note that actual storage will not be updated until \c nvs_commit is called.
+ *
+ * @note Firmware built with an ESP-IDF version which does not support NVS_TYPE_KEYONLY
+ *       treats such entries as invalid and erases them.
+ *
+ * @param[in]  handle  Handle obtained from nvs_open function.
+ *                     Handles that were opened read only cannot be used.
+ * @param[in]  key     Key name. Maximum length is (NVS_KEY_NAME_MAX_SIZE-1) characters. Shouldn't be empty.
+ *
+ * @return
+ *             - ESP_OK if the key was set successfully
+ *             - ESP_FAIL if there is an internal error; most likely due to corrupted
+ *               NVS partition (only if NVS assertion checks are disabled)
+ *             - ESP_ERR_NVS_INVALID_HANDLE if handle has been closed or is NULL
+ *             - ESP_ERR_NVS_READ_ONLY if storage handle was opened as read only
+ *             - ESP_ERR_NVS_KEY_TOO_LONG if the key name is longer than (NVS_KEY_NAME_MAX_SIZE-1) characters
+ *             - ESP_ERR_NVS_NOT_ENOUGH_SPACE if there is not enough space in the
+ *               underlying storage to save the key
+ *             - ESP_ERR_NVS_REMOVE_FAILED if the previous value of the key wasn't removed because flash
+ *               write operation has failed. The key was written however, and
+ *               update will be finished after re-initialization of nvs, provided that
+ *               flash operation doesn't fail again.
+ */
+esp_err_t nvs_set_keyonly(nvs_handle_t handle, const char* key);
 
 /**@{*/
 /**
