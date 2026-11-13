@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
+import struct
 from typing import Any
 from zlib import crc32
 
@@ -23,6 +24,8 @@ class NVS_Constants:
             0x08: 'uint64_t',
             0x18: 'int64_t',
             0x21: 'string',
+            0x24: 'float',
+            0x28: 'double',
             0x41: 'blob',
             0x42: 'blob_data',
             0x48: 'blob_index',
@@ -171,6 +174,11 @@ class NVS_Entry:
                         signed=bool(i_type & number_sign_mask),
                     )
                     return {'value': num}
+
+                if nvs_const.item_type[i_type] == 'float':
+                    return {'value': struct.unpack('<f', data[:4])[0]}
+                if nvs_const.item_type[i_type] == 'double':
+                    return {'value': struct.unpack('<d', data[:8])[0]}
 
                 # Deal with variable length entries
                 if nvs_const.item_type[i_type] in ['string', 'blob_data', 'blob']:
